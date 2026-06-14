@@ -1,270 +1,441 @@
-# Technical Decisions
+# DECISIONS.md — LedgerOS Decision Log
 
-This document explains the important technical and product decisions made while building the Shared Expenses backend.
+This file records the product and engineering decisions made for the Shared Expenses App assignment.
 
-## 1. Django REST Framework for Backend
+The goal was not only to build a polished UI. The goal was to handle imperfect financial data deliberately, make every important assumption explicit, and build a codebase that can be explained in a live technical session.
 
-I used Django REST Framework because it provides:
+## Decision 1 — Build a review-first ledger, not only a Splitwise clone
 
-* fast API development
-* relational model support
-* admin panel
-* authentication integration
-* serializer validation
-* clean ViewSet routing
+### Problem
 
-This matches the assignment because the product is data-heavy and requires relational database behavior.
+The assignment is based on a messy spreadsheet, not clean manually entered expenses. The CSV contains duplicates, inconsistent formats, USD expenses, membership changes, and settlement-like rows.
 
-## 2. Relational Database Only
+### Options considered
 
-The app uses relational models for:
+1. Build a simple Splitwise clone with manual expense creation.
+2. Build a direct CSV importer that imports everything automatically.
+3. Build a review-first ledger where CSV rows are staged, checked, reviewed, and then committed.
 
-* users
-* groups
-* memberships
-* expenses
-* expense splits
-* settlements
-* import batches
-* import rows
-* import issues
-* audit logs
+### Decision
 
-This satisfies the requirement to use relational databases only.
+Chosen option: **review-first ledger**.
 
-## 3. Money Stored as Integer Paise
+### Reason
 
-Amounts are stored as integer paise instead of float.
+The assignment explicitly says a crashed import and a silent guess are both failing answers. A review-first import pipeline gives the safest behavior:
 
-Reason:
+```txt
+raw row → normalized row → issue detection → user review → safe commit
+```
 
-Floating point numbers can create rounding errors in money calculations.
+This also satisfies Meera’s request that duplicates should not be deleted or changed without approval.
+
+## Decision 2 — Rename the workspace to Flatmates Ledger 2026
+
+### Problem
+
+The CSV is not only about the Goa trip. It includes rent, groceries, utilities, maid salary, move-in/move-out expenses, deposits, settlements, and Goa trip expenses.
+
+### Options considered
+
+1. Keep the group name as `Goa Trip 2026`.
+2. Create multiple groups: Flat, Goa Trip, Deposits, etc.
+3. Use one group named `Flatmates Ledger 2026` and treat Goa as a subset of expenses.
+
+### Decision
+
+Chosen option: **Flatmates Ledger 2026**.
+
+### Reason
+
+The assignment describes one shared spreadsheet for flatmates since February. Goa is only one high-risk subset because it contains Dev and USD transactions. One evolving group with membership history best matches the assignment.
+
+## Decision 3 — Use Django REST Framework for backend
+
+### Problem
+
+The app needs authentication, relational models, API endpoints, CSV import services, audit logs, and deployment readiness.
+
+### Options considered
+
+1. Next.js full-stack only
+2. Node.js/Express backend
+3. Django REST Framework backend
+
+### Decision
+
+Chosen option: **Django REST Framework**.
+
+### Reason
+
+Django provides strong built-in support for relational modeling, authentication, admin inspection, migrations, and service-layer code. DRF makes API creation straightforward. It is also easier to explain model relationships in a live technical walkthrough.
+
+## Decision 4 — Use React/Vite for frontend
+
+### Problem
+
+The frontend needs dashboard views, upload workflows, review queues, and balance visualizations.
+
+### Options considered
+
+1. Server-rendered Django templates
+2. Next.js frontend
+3. React + Vite frontend
+
+### Decision
+
+Chosen option: **React + Vite + TypeScript**.
+
+### Reason
+
+The assignment benefits from an interactive frontend: CSV upload, issue review, batch switching, live status cards, and balance breakdown views. Vite keeps the frontend fast and simple for a 2-day assignment.
+
+## Decision 5 — Use a relational database only
+
+### Problem
+
+The assignment explicitly requires relational DBs only.
+
+### Options considered
+
+1. MongoDB / document database
+2. SQLite locally and PostgreSQL in production
+3. PostgreSQL only
+
+### Decision
+
+Chosen option: **SQLite locally and PostgreSQL/Neon-ready for production**.
+
+### Reason
+
+SQLite is convenient for local development, while PostgreSQL/Neon matches production deployment needs. Both are relational databases and work through Django ORM.
+
+## Decision 6 — Store money as integer paise
+
+### Problem
+
+Money calculations must be precise and explainable. The CSV has values such as `899.995`, USD conversion, percentage splits, and share splits.
+
+### Options considered
+
+1. Store money as floating point numbers
+2. Store money as decimal fields only
+3. Store money as integer paise
+
+### Decision
+
+Chosen option: **integer paise**.
+
+### Reason
+
+Floating point can create rounding errors. Integer paise makes every balance calculation reproducible and explainable.
 
 Example:
 
 ```txt
-₹1200.50 = 120050 paise
+₹1200.50 → 120050 paise
 ```
 
-This makes balance calculation deterministic and safe.
+## Decision 7 — Use deterministic rounding
 
-## 4. INR Ledger with Currency Conversion
+### Problem
 
-The internal ledger stores values in INR paise.
+Some split calculations do not divide evenly. For example, ₹1199 split among 4 people cannot be divided into equal paise without a remainder.
 
-CSV rows can contain INR or USD.
+### Options considered
 
-USD rows are converted using:
+1. Use floats and round visually only
+2. Round each share independently
+3. Use integer division and distribute remaining paise deterministically
+
+### Decision
+
+Chosen option: **deterministic paise remainder distribution**.
+
+### Reason
+
+The sum of split shares must always equal the original expense amount. Any leftover paise is assigned deterministically, so the same input always gives the same output.
+
+## Decision 8 — Use membership timeline instead of current members only
+
+### Problem
+
+Sam moved in mid-April and Meera moved out at the end of March. Current membership alone cannot decide whether they owe a historical expense.
+
+### Options considered
+
+1. Store only current group members
+2. Store a many-to-many relation without dates
+3. Store membership records with `joined_at` and `left_at`
+
+### Decision
+
+Chosen option: **timeline-based GroupMembership**.
+
+### Reason
+
+The CSV must be validated against the expense date. This directly satisfies Sam’s request.
+
+Membership rule:
 
 ```txt
-USD_TO_INR_RATE
+joined_at <= expense_date AND (left_at IS NULL OR expense_date <= left_at)
 ```
 
-The conversion is flagged as an import issue:
+## Decision 9 — Keep settlement separate from expenses
+
+### Problem
+
+The CSV includes rows that are not shared expenses, such as “Rohan paid Aisha back.” If imported as an expense, balances would be wrong.
+
+### Options considered
+
+1. Import settlement rows as normal expenses
+2. Drop settlement rows
+3. Store settlements in a separate model
+
+### Decision
+
+Chosen option: **separate Settlement model**.
+
+### Reason
+
+An expense creates shared debt. A settlement reduces debt between two people. They are different financial events and must be modeled separately.
+
+## Decision 10 — Do not silently delete duplicates
+
+### Problem
+
+The spreadsheet contains duplicate or duplicate-like rows. Meera specifically asked to approve anything the app deletes or changes.
+
+### Options considered
+
+1. Automatically delete exact duplicates
+2. Keep all duplicate rows
+3. Flag duplicates and let the user decide
+
+### Decision
+
+Chosen option: **flag duplicates and require review**.
+
+### Reason
+
+Automatic deletion is risky. The assignment rewards deliberate handling. Duplicate rows become `ImportIssue` records and are visible in the import report.
+
+## Decision 11 — Convert USD using a fixed configured rate
+
+### Problem
+
+The CSV contains USD expenses. Priya says the sheet pretending USD is INR is wrong.
+
+### Options considered
+
+1. Treat USD amount as INR
+2. Block all USD rows
+3. Fetch live exchange rates
+4. Use a fixed documented conversion rate
+
+### Decision
+
+Chosen option: **fixed documented USD_TO_INR_RATE**.
+
+### Reason
+
+The assignment needs reproducible behavior. A live exchange-rate API would make balances change depending on time/network. A fixed rate is transparent and testable.
+
+Current rate:
 
 ```txt
-USD_CONVERTED
+1 USD = ₹83.00
 ```
 
-Reason:
+## Decision 12 — AI does not calculate balances
 
-Currency conversion should be visible and reviewable.
+### Problem
 
-## 5. CSV Upload Does Not Directly Create Expenses
+AI can hallucinate or produce inconsistent calculations. Financial balances need deterministic correctness.
 
-CSV upload only creates:
+### Options considered
+
+1. Use AI to parse and calculate balances
+2. Use AI to suggest anomaly policies
+3. Use deterministic code for calculations and AI-style explanations only
+
+### Decision
+
+Chosen option: **deterministic financial logic, AI-style explanation layer only**.
+
+### Reason
+
+Balances must be explainable and testable by hand. AI can help explain issues, but it should not be trusted to calculate money.
+
+## Decision 13 — Store raw CSV rows
+
+### Problem
+
+In the live evaluation, reviewers may ask what happened to a specific row.
+
+### Options considered
+
+1. Parse CSV and discard raw data
+2. Store only normalized data
+3. Store both raw data and normalized data
+
+### Decision
+
+Chosen option: **store raw and normalized import data**.
+
+### Reason
+
+Raw storage makes the importer auditable. It lets the developer show exactly what the app received from the CSV.
+
+## Decision 14 — Use ImportBatch, ImportRow, and ImportIssue models
+
+### Problem
+
+CSV upload is not a simple one-step operation. It needs staging, issue creation, review, and commit.
+
+### Options considered
+
+1. Import directly into Expense table
+2. Store CSV as file only
+3. Use staged import tables
+
+### Decision
+
+Chosen option: **staged import tables**.
+
+### Reason
+
+Staging prevents bad data from polluting the ledger. It also supports import reports and user review.
+
+## Decision 15 — Commit only safe rows
+
+### Problem
+
+A CSV can contain both safe and unsafe rows. Blocking the entire import would be frustrating, but committing everything would be wrong.
+
+### Options considered
+
+1. Fail the whole import if any row has an issue
+2. Commit all rows and mark questionable ones
+3. Commit safe rows and keep risky rows blocked/reviewable
+
+### Decision
+
+Chosen option: **partial safe commit**.
+
+### Reason
+
+This keeps the app useful while still protecting ledger correctness.
+
+Development result for the provided CSV:
 
 ```txt
-ImportBatch
-ImportRow
-ImportIssue
+42 total rows
+39 issue instances
+16 expenses committed on first safe commit
+26 rows blocked or not committed
+status PARTIALLY_COMMITTED
 ```
 
-It does not directly create:
+## Decision 16 — Add audit logs
 
-```txt
-Expense
-ExpenseSplit
-Settlement
-```
+### Problem
 
-Reason:
+The evaluator may ask who uploaded, reviewed, or committed data.
 
-CSV data can contain duplicates, missing payer, invalid dates, wrong split totals, unknown members, or settlement rows.
+### Options considered
 
-Financial data should not silently affect balances.
+1. Do not track history
+2. Store only timestamps on records
+3. Add AuditLog for important actions
 
-## 6. Import Review Before Commit
+### Decision
 
-The import flow is:
+Chosen option: **AuditLog model**.
 
-```txt
-Upload CSV
-→ Analyze rows
-→ Show issues
-→ User reviews
-→ Commit safe rows
-```
+### Reason
 
-This is safer than importing everything directly.
+Audit logs prove the app handles financial data deliberately. They also make live explanation easier.
 
-## 7. Partial Commit
+## Decision 17 — Use issue codes instead of only messages
 
-The commit step supports partial commit.
+### Problem
 
-If 16 rows are valid and 26 rows are risky:
+Plain text messages are hard to test and filter.
 
-```txt
-16 rows are committed
-26 rows remain blocked or under review
-```
+### Options considered
 
-Reason:
+1. Store only human messages
+2. Store only booleans like valid/invalid
+3. Store structured issue codes
 
-Clean data should not be blocked only because unrelated rows are bad.
+### Decision
 
-## 8. Separate Expense and Settlement Models
+Chosen option: **structured issue codes**.
 
-Expenses and settlements are stored separately.
+### Reason
 
-Reason:
+Codes such as `UNKNOWN_MEMBER`, `MISSING_PAYER`, and `USD_CONVERTED` are easy to filter, explain, test, and document.
 
-An expense creates shared debt.
+## Decision 18 — Keep frontend demo flow centered on Aisha
 
-A settlement reduces existing debt.
+### Problem
 
-If a settlement is imported as an expense, balances become wrong.
+The assignment needs a clear working demo flow in 2 days.
 
-Therefore settlement-like CSV rows are flagged as:
+### Options considered
 
-```txt
-SETTLEMENT_AS_EXPENSE
-```
+1. Build full multi-role UI for every member
+2. Build only backend APIs and minimal UI
+3. Build a complete admin/operator demo flow using Aisha
 
-## 9. Membership Timeline Validation
+### Decision
 
-Group memberships have:
+Chosen option: **Aisha-centered demo workflow**.
 
-```txt
-joined_at
-left_at
-```
+### Reason
 
-This lets the system detect if someone was charged outside their membership period.
+Aisha is the natural operator because she wants the final settlement numbers. The current UI shows the full import/review/commit/balance/audit workflow clearly. Other members still exist for membership validation and balance calculations.
 
-Examples:
+## Decision 19 — Build a premium dashboard UI but keep code explainable
 
-```txt
-Meera left on 2026-03-31.
-Sam joined on 2026-04-15.
-```
+### Problem
 
-So the importer can flag:
+A polished UI helps presentation, but a complex UI can become hard to explain.
 
-```txt
-INACTIVE_MEMBER
-```
+### Options considered
 
-## 10. Deterministic Remainder Allocation
+1. Basic tables only
+2. Heavy animations and complex frontend state
+3. Polished dashboard with simple API-driven components
 
-When an amount cannot split perfectly into paise, extra paise go to earlier participants.
+### Decision
 
-Example:
+Chosen option: **polished but explainable dashboard**.
 
-```txt
-₹1.00 split among 3 users
-= 34 paise, 33 paise, 33 paise
-```
+### Reason
 
-Reason:
+The live evaluation values understanding. The frontend is separated into pages, API modules, and reusable components so each piece can be explained.
 
-The system must be deterministic and explainable.
+## Decision 20 — Document AI mistakes honestly
 
-## 11. AI-Style Explanation Without External LLM
+### Problem
 
-The AI explanation endpoint is deterministic.
+The assignment explicitly asks for AI usage and wrong outputs.
 
-It does not call an external AI API.
+### Options considered
 
-Reason:
+1. Hide AI usage
+2. Mention only that AI was used
+3. Document prompts, mistakes, and corrections
 
-* stable demo
-* no API key dependency
-* predictable output
-* easier testing
-* avoids network/API failures
+### Decision
 
-The endpoint still provides AI-like output:
+Chosen option: **transparent AI usage log**.
 
-* issue meaning
-* risk
-* recommended action
-* sample rows
+### Reason
 
-## 12. Audit Logs Are Append-Only
+The evaluator wants to see that the developer remained responsible for the solution. AI was used as a collaborator, not as the engineer of record.
 
-Audit logs are created for important actions:
-
-```txt
-CSV upload
-issue decision
-batch commit
-```
-
-Audit logs are read-only in Django Admin.
-
-Reason:
-
-Audit history should not be manually edited or deleted.
-
-## 13. Django Admin for Review and Debugging
-
-Admin registration was added for:
-
-```txt
-Groups
-Group memberships
-Expenses
-Expense splits
-Settlements
-Import batches
-Import rows
-Import issues
-Import decisions
-Audit logs
-```
-
-Reason:
-
-During development and live review, admin makes it easy to inspect data and prove the backend flow.
-
-## 14. Seed Command for Demo Consistency
-
-A `seed_demo` management command creates:
-
-```txt
-Aisha
-Rohan
-Priya
-Meera
-Dev
-Sam
-Goa Trip 2026
-membership timeline
-```
-
-Reason:
-
-The reviewer can run one command and reproduce the same demo state.
-
-## 15. Current Limitation
-
-The backend currently detects bad rows but does not provide full row editing.
-
-Future improvement:
-
-```txt
-Edit normalized row
-Re-run validation
-Commit corrected row
-```

@@ -1,215 +1,169 @@
-# Shared Expenses App Backend
+# LedgerOS — Shared Expenses App
 
-A Splitwise-inspired shared expenses backend built with Django REST Framework.
+LedgerOS is a shared expenses application built for the **Shared Expenses App** assignment. It is designed for a flatmate group whose spreadsheet contains messy real-world financial data: rent, groceries, utilities, Goa trip expenses, USD payments, duplicate rows, settlements recorded as expenses, and membership changes over time.
 
-This project supports user authentication, group membership timelines, expense splitting, settlements, CSV import, anomaly detection, AI-style import explanations, audit logs, and balance calculation.
+The app is not only a Splitwise-style CRUD clone. Its main product idea is a **review-first financial ledger**:
 
-## Current Status
+```txt
+Messy CSV → safe import → anomaly detection → human review → safe commit → balances → audit trail
+```
 
-Backend is complete and tested locally.
+## Demo context
 
-Verified flows:
+The assignment scenario contains these people:
 
-* JWT login
-* Django Admin
-* Demo users and membership timeline
-* CSV upload
-* Import anomaly detection
-* Import summary
-* AI-style import explanation
-* Partial commit of valid rows
-* Balance calculation
-* Suggested settlements
-* Audit log visibility
+- Aisha
+- Rohan
+- Priya
+- Meera
+- Dev
+- Sam
 
-## Tech Stack
+The main workspace should be treated as:
+
+```txt
+Flatmates Ledger 2026
+```
+
+The CSV covers shared flatmate expenses from February to April 2026, including:
+
+- February and March rent
+- groceries
+- wifi bills
+- electricity bills
+- maid salary
+- Goa trip expenses
+- USD expenses
+- Meera moving out
+- Sam moving in
+- settlements/payments
+- duplicate and inconsistent spreadsheet rows
+
+The earlier name `Goa Trip 2026` was only a subset of the data. The correct domain name is **Flatmates Ledger 2026** because the CSV contains the full flatmates ledger, not only the Goa trip.
+
+## Assignment requirements covered
+
+| Requirement | Implementation |
+|---|---|
+| Login module | JWT authentication through Django REST Framework and protected frontend routes |
+| Create/manage groups | Group and membership models |
+| Membership changes over time | `GroupMembership` stores join and leave dates |
+| Create/manage expenses | Expense and split models |
+| Split types in CSV | Equal, unequal/exact, percentage, and share-based splits |
+| Group-wise balances | Balance API and frontend balance page |
+| Individual balance summary | Member-level breakdown and net position display |
+| Settle debts / record payments | Settlement model and settlement-aware import policy |
+| Import `expenses_export.csv` exactly as provided | CSV upload through app; no manual CSV editing required |
+| Detect anomalies | Import service creates issue records for bad rows |
+| Surface anomalies | Import Cockpit and AI Review pages show detected issues |
+| Policy-based handling | Issues are approved, skipped, blocked, or committed according to documented policies |
+| Relational DB only | Django ORM with SQLite locally and PostgreSQL/Neon for deployment |
+| Import report | Import summary, issue queue, AI review page, and commit result |
+| Auditability | Audit trail records uploads, review decisions, and commits |
+
+## Tech stack
 
 ### Backend
 
-* Python
-* Django
-* Django REST Framework
-* Simple JWT
-* PostgreSQL-ready through `dj-database-url`
-* SQLite fallback for local development
-* Google Auth support
-* Django Admin
+- Python
+- Django
+- Django REST Framework
+- Simple JWT authentication
+- Django ORM
+- SQLite for local development
+- PostgreSQL / Neon-ready deployment
+- Deterministic CSV import and anomaly detection
+- Integer paise money storage
 
-### Database
+### Frontend
 
-Relational database only.
+- React
+- Vite
+- TypeScript
+- Tailwind CSS v4
+- React Router
+- Axios
+- lucide-react
+- Responsive dashboard UI
 
-Local development can use SQLite. Production/deployment can use Neon PostgreSQL by setting `DATABASE_URL`.
-
-## Main Features
-
-### 1. Authentication
-
-The backend supports JWT authentication.
-
-Main endpoints:
-
-```txt
-POST /api/auth/token/
-POST /api/auth/token/refresh/
-GET  /api/auth/me/
-POST /api/auth/google/
-```
-
-Demo login:
+## Core product flow
 
 ```txt
-username: Aisha
-password: Password@123
+1. User logs in
+2. User opens Flatmates Ledger 2026
+3. User uploads expenses_export.csv
+4. Backend parses every row exactly as provided
+5. Backend detects anomalies and creates import issues
+6. Frontend shows import report and issue queue
+7. User reviews risky issues
+8. User commits safe rows
+9. Backend creates expenses, splits, settlements, and audit logs
+10. Balance engine calculates who owes whom
+11. User sees group summary, individual breakdown, and settlement suggestions
 ```
 
-### 2. Groups and Membership Timeline
+## Demo credentials
 
-Users can belong to groups with join and leave dates.
-
-This is important because CSV expenses should not charge users outside their membership period.
-
-Demo group:
+Use the seeded demo user:
 
 ```txt
-Goa Trip 2026
+Username: Aisha
+Password: Password@123
 ```
 
-Demo membership timeline:
+Aisha is the recommended demo/admin user because she can run the full import and review workflow.
+
+Other seeded users are available for membership and balance testing:
 
 ```txt
-Aisha  joined 2026-02-01, active, admin
-Rohan  joined 2026-02-01, active
-Priya  joined 2026-02-01, active
-Meera  joined 2026-02-01, left 2026-03-31
-Dev    joined 2026-03-10, active
-Sam    joined 2026-04-15, active
+Rohan
+Priya
+Meera
+Dev
+Sam
 ```
 
-### 3. Expenses
+## Important data model idea
 
-The backend supports these split types:
+Membership is time-based, not just a simple many-to-many relation.
+
+A member is active for an expense only if:
 
 ```txt
-EQUAL
-EXACT
-PERCENTAGE
-SHARE
+joined_at <= expense_date AND (left_at IS NULL OR expense_date <= left_at)
 ```
 
-Money is stored internally in paise as integers to avoid floating point errors.
+This protects cases such as:
 
-Example:
+- Sam should not pay March expenses because he joined in mid-April.
+- Meera can appear in old expenses but should be flagged if included after moving out.
+- Dev may be valid for trip expenses but suspicious if used outside the expected trip/member window.
 
-```txt
-₹1200.50 = 120050 paise
-```
+## Local setup
 
-### 4. Settlements
-
-Settlement rows reduce debt between two users.
-
-A settlement is stored separately from an expense because it should not create a new shared cost.
-
-### 5. CSV Import
-
-CSV upload creates an import report first.
-
-It does not immediately create expenses.
-
-Flow:
-
-```txt
-CSV upload
-→ ImportBatch
-→ ImportRows
-→ ImportIssues
-→ User review
-→ Commit valid rows
-→ Expenses/Settlements created
-→ Balances updated
-```
-
-This prevents bad data from silently affecting balances.
-
-### 6. Import Anomaly Detection
-
-The importer detects issues such as:
-
-```txt
-AMBIGUOUS_DATE
-AMOUNT_PRECISION
-DUPLICATE_CONFLICT
-INACTIVE_MEMBER
-INVALID_DATE
-INVALID_PERCENTAGE_TOTAL
-MISSING_CURRENCY
-MISSING_PAYER
-NEGATIVE_AMOUNT
-POSSIBLE_DUPLICATE
-SETTLEMENT_AS_EXPENSE
-SPLIT_DETAILS_WITH_EQUAL
-UNKNOWN_MEMBER
-USD_CONVERTED
-ZERO_AMOUNT
-```
-
-### 7. AI-Style Import Explanation
-
-The backend includes a deterministic AI-style explainer endpoint.
-
-Endpoint:
-
-```txt
-GET /api/ai/imports/{batch_id}/explain/
-```
-
-It explains:
-
-* what each anomaly means
-* why it is risky
-* what action the user should take
-* sample affected rows
-
-This is deterministic and does not call an external LLM, so the demo remains reliable.
-
-### 8. Balances
-
-Balances are calculated from committed expenses and settlements.
-
-Endpoint:
-
-```txt
-GET /api/expenses/groups/{group_id}/balances/
-```
-
-The response includes:
-
-* user balances
-* detailed breakdown
-* suggested settlements
-
-Example verified result after importing the provided CSV:
-
-```txt
-Aisha is owed ₹60,170.99
-Rohan owes ₹28,081.00
-Priya owes ₹23,823.99
-Meera owes ₹9,008.50
-Sam is owed ₹742.50
-```
-
-## Local Setup
-
-### 1. Create virtual environment
+### 1. Clone repository
 
 ```bash
+git clone https://github.com/shudhanshu002/LedgerOs
+cd ledgerOs
+```
+
+### 2. Backend setup
+
+```bash
+cd backend
 python -m venv .venv
 ```
 
-### 2. Activate virtual environment
+Activate the virtual environment.
 
-Windows:
+Windows PowerShell:
+
+```bash
+.venv\Scripts\Activate.ps1
+```
+
+Windows CMD:
 
 ```bash
 .venv\Scripts\activate
@@ -221,126 +175,377 @@ macOS/Linux:
 source .venv/bin/activate
 ```
 
-### 3. Install dependencies
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Environment variables
+Create `.env` from example:
 
-Create a `.env` file inside `backend/`.
+```bash
+cp .env.example .env
+```
 
-For local SQLite development:
+Example backend environment:
 
 ```env
-SECRET_KEY=change-me-in-production
+SECRET_KEY=replace-with-local-secret
 DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+DATABASE_URL=sqlite:///db.sqlite3
+ALLOWED_HOSTS=127.0.0.1,localhost
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 USD_TO_INR_RATE=83.00
 ```
 
-For Neon PostgreSQL, also add:
+For PostgreSQL/Neon deployment, use:
 
 ```env
-DATABASE_URL=postgresql://username:password@host/dbname?sslmode=require
+DATABASE_URL=postgresql://USER:PASSWORD@HOST.neon.tech/DBNAME?sslmode=require
 ```
 
-### 5. Run migrations
+Run migrations:
 
 ```bash
 python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 6. Seed demo data
+Seed demo users and the default group:
 
 ```bash
 python manage.py seed_demo
 ```
 
-### 7. Create admin user
+Recommended group rename if your seed still says `Goa Trip 2026`:
 
 ```bash
-python manage.py createsuperuser
+python manage.py shell -c "from apps.groups.models import Group; Group.objects.filter(id=1).update(name='Flatmates Ledger 2026', description='Shared flatmate expenses from Feb-Apr 2026, including rent, groceries, utilities, Goa trip expenses, move-in/move-out changes, settlements, and CSV cleanup.')"
 ```
 
-### 8. Run server
+Start backend:
 
 ```bash
 python manage.py runserver
 ```
 
-Server runs at:
+Backend local URL:
 
 ```txt
-http://127.0.0.1:8000/
+http://127.0.0.1:8000
 ```
 
-Admin runs at:
+### 3. Frontend setup
+
+Open a second terminal:
+
+```bash
+cd frontend
+npm install
+```
+
+Create frontend `.env`:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Start frontend:
+
+```bash
+npm run dev
+```
+
+Frontend local URL:
 
 ```txt
-http://127.0.0.1:8000/admin/
+http://localhost:5173
 ```
 
-## API Testing Order
+## How to test the app locally
 
-Use Postman in this order:
+### Step 1: Login
+
+Open:
 
 ```txt
-1. POST /api/auth/token/
-2. GET  /api/auth/me/
-3. GET  /api/groups/
-4. POST /api/imports/upload/
-5. GET  /api/imports/{batch_id}/summary/
-6. GET  /api/imports/{batch_id}/issues/
-7. GET  /api/ai/imports/{batch_id}/explain/
-8. POST /api/imports/{batch_id}/commit/
-9. GET  /api/expenses/groups/{group_id}/balances/
-10. GET /api/audit/
+http://localhost:5173/login
 ```
 
-## Verified Import Result
-
-For the provided `expenses_export.csv`, the backend produced:
+Login as:
 
 ```txt
-total_rows: 42
-valid_rows before commit: 16
-needs_review_rows: 17
-blocked_rows: 9
-issue_count: 39
+Aisha / Password@123
 ```
 
-After commit:
+Expected result:
 
 ```txt
-status: PARTIALLY_COMMITTED
-committed_rows: 16
-needs_review_rows: 17
-blocked_rows: 9
+Redirects to /dashboard
+Access and refresh tokens are stored in localStorage
 ```
 
-This means clean rows were safely committed while risky rows were kept out of balances.
+### Step 2: Open Dashboard
 
-## Important Design Principle
+Open:
 
-The system never silently imports risky financial data.
+```txt
+/dashboard
+```
 
-Bad or ambiguous CSV rows are first converted into reviewable issues. Only valid or approved rows can affect balances.
+Expected sections:
 
-## AI Tool Usage
+- workspace status bar
+- product story
+- system flow
+- risk matrix
+- metrics
+- recent activity
 
-AI was used as a development collaborator for:
+### Step 3: Upload CSV
 
-* requirement breakdown
-* backend architecture
-* model design
-* CSV anomaly policies
-* API design
-* documentation drafting
-* debugging support
+Open:
 
-The final implementation decisions were reviewed and tested manually.
+```txt
+/imports
+```
+
+Upload:
+
+```txt
+expenses_export.csv
+```
+
+Expected result:
+
+- import batch is created
+- rows are parsed
+- issues are created
+- import report is displayed
+- issue queue shows anomalies
+
+Known import scale from the provided CSV:
+
+```txt
+Total rows: 42
+Detected issues: 39
+First safe commit result observed during development: 16 committed expenses, 0 committed settlements, 26 blocked rows, status PARTIALLY_COMMITTED
+```
+
+The exact committed count can vary after repeated imports/commits because already-committed batches should not duplicate ledger entries.
+
+### Step 4: Review issues
+
+In the Import Cockpit, review open issues and apply decisions such as:
+
+- approve / keep row
+- skip row
+- fix later
+- reject
+- import as settlement where applicable
+
+Expected result:
+
+- issue status updates
+- batch summary refreshes
+- audit event is written
+
+### Step 5: Commit safe rows
+
+Click:
+
+```txt
+Commit safe rows
+```
+
+Expected result:
+
+- safe import rows become Expense / ExpenseSplit records
+- settlement-like rows are handled according to policy
+- blocked rows remain uncommitted
+- commit result appears
+- audit log is created
+
+### Step 6: Check balances
+
+Open:
+
+```txt
+/balances
+```
+
+Expected result:
+
+- net balance per person
+- suggested settlements
+- individual breakdown
+
+Development result after the original CSV safe commit:
+
+```txt
+Aisha: +₹60170.99
+Rohan: -₹28081.00
+Priya: -₹23823.99
+Meera: -₹9008.50
+Sam: +₹742.50
+```
+
+Suggested settlements observed:
+
+```txt
+Rohan → Aisha: ₹28081.00
+Priya → Aisha: ₹23823.99
+Meera → Aisha: ₹8266.00
+Meera → Sam: ₹742.50
+```
+
+### Step 7: Check audit trail
+
+Open:
+
+```txt
+/audit
+```
+
+Expected events:
+
+- import upload
+- issue review decision
+- import commit
+
+## API overview
+
+Authentication:
+
+```txt
+POST /api/auth/token/
+POST /api/auth/token/refresh/
+GET  /api/auth/me/
+```
+
+Groups:
+
+```txt
+GET  /api/groups/
+POST /api/groups/
+GET  /api/groups/{id}/
+```
+
+Imports:
+
+```txt
+GET  /api/imports/
+POST /api/imports/upload/
+GET  /api/imports/{batch_id}/
+GET  /api/imports/{batch_id}/summary/
+GET  /api/imports/{batch_id}/issues/
+POST /api/imports/{batch_id}/commit/
+POST /api/imports/issues/{issue_id}/decision/
+```
+
+AI-style review:
+
+```txt
+GET /api/ai/imports/{batch_id}/explain/
+```
+
+Expenses and balances:
+
+```txt
+GET /api/expenses/
+GET /api/expenses/groups/{group_id}/balances/
+```
+
+Settlements:
+
+```txt
+GET  /api/expenses/settlements/
+POST /api/expenses/settlements/
+```
+
+Audit:
+
+```txt
+GET /api/audit/
+```
+
+## Deployment
+
+### Frontend
+
+Recommended: Vercel.
+
+Set environment variable:
+
+```env
+VITE_API_BASE_URL=https://<YOUR_BACKEND_URL>
+```
+
+Build command:
+
+```bash
+npm run build
+```
+
+Output directory:
+
+```txt
+dist
+```
+
+### Backend
+
+Recommended: Render / Railway / Fly.io.
+
+Use PostgreSQL/Neon for the deployed database.
+
+Important backend environment variables:
+
+```env
+SECRET_KEY=<production-secret>
+DEBUG=False
+DATABASE_URL=postgresql://USER:PASSWORD@HOST.neon.tech/DBNAME?sslmode=require
+ALLOWED_HOSTS=<your-backend-host>
+CORS_ALLOWED_ORIGINS=https://<your-frontend-domain>
+USD_TO_INR_RATE=83.00
+```
+
+Run on deploy:
+
+```bash
+python manage.py migrate
+python manage.py seed_demo
+```
+
+## Repository quality
+
+Recommended commit style:
+
+```txt
+feat: add JWT authentication
+feat: add group membership timeline
+feat: add CSV import models
+feat: add anomaly detector
+feat: add import review decisions
+feat: add safe commit service
+feat: add balance calculation
+feat: add audit trail
+feat: build frontend dashboard
+feat: build import cockpit
+feat: build balance page
+feat: build audit trail page
+docs: add scope and decision logs
+docs: add AI usage report
+```
+
+## Known limitations
+
+- The current demo flow is optimized for Aisha as the admin/operator.
+- Frontend uses a default demo group/batch for the assignment workflow.
+- Full production-grade RBAC UI can be improved by hiding admin-only buttons from normal members.
+- Currency conversion uses a fixed deterministic rate for reproducibility, not a live exchange-rate API.
+- The AI review layer is deterministic/explainable and is not allowed to calculate balances.
+
+## Why this solution fits the assignment
+
+The assignment is testing whether imperfect financial data is handled deliberately. LedgerOS does that by refusing to silently guess. Every risky row becomes an issue, every issue has a policy, every commit is auditable, and balances are calculated from committed ledger records only.

@@ -1,13 +1,18 @@
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
-import { api, saveTokens } from "../../lib/api";
+import { usePageTitle } from "../../hooks/usePageTitle";
+import { AuthStatusCard } from "./AuthStatusCard";
+import { loginUser } from "./authApi";
+import { DEMO_CREDENTIALS } from "./types";
 
 export function LoginPage() {
+  usePageTitle("Login");
+
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState("Aisha");
-  const [password, setPassword] = useState("Password@123");
+  const [username, setUsername] = useState(DEMO_CREDENTIALS.username);
+  const [password, setPassword] = useState(DEMO_CREDENTIALS.password);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -17,12 +22,11 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await api.post("/api/auth/token/", {
+      await loginUser({
         username,
         password,
       });
 
-      saveTokens(response.data.access, response.data.refresh);
       navigate("/dashboard");
     } catch {
       setError("Login failed. Check username and password.");
@@ -118,10 +122,7 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-ledger-muted">
-            Demo credentials are prefilled. Aisha is the group admin and can
-            upload CSVs, review issues, and commit imports.
-          </div>
+          <AuthStatusCard />
         </section>
       </div>
     </main>

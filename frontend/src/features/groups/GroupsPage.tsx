@@ -9,6 +9,11 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import {
+  fieldClassName,
+  optionClassName,
+  selectClassName,
+} from "../../components/ui/formStyles";
 import { resolveActiveGroupId, saveActiveGroupId } from "../../lib/activeGroup";
 import { GroupSafetyCard } from "./GroupSafetyCard";
 import {
@@ -24,11 +29,6 @@ import {
   type UserMini,
   calculateGroupStats,
 } from "./types";
-
-const fieldClassName =
-  "w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-ledger-muted focus:border-ledger-green/50 focus:bg-black/40";
-
-const selectClassName = `${fieldClassName} cursor-pointer appearance-none`;
 
 export function GroupsPage() {
   usePageTitle("Groups");
@@ -284,12 +284,12 @@ export function GroupsPage() {
                 onChange={(event) => setMemberUserId(event.target.value)}
                 className={selectClassName}
               >
-                <option className="bg-ledger-bg text-white" value="">
+                <option className={optionClassName} value="">
                   Choose user
                 </option>
                 {users.map((user) => (
                   <option
-                    className="bg-ledger-bg text-white"
+                    className={optionClassName}
                     key={user.id}
                     value={user.id}
                   >
@@ -306,10 +306,10 @@ export function GroupsPage() {
                   }
                   className={selectClassName}
                 >
-                  <option className="bg-ledger-bg text-white" value="MEMBER">
+                  <option className={optionClassName} value="MEMBER">
                     Member
                   </option>
-                  <option className="bg-ledger-bg text-white" value="ADMIN">
+                  <option className={optionClassName} value="ADMIN">
                     Admin
                   </option>
                 </select>

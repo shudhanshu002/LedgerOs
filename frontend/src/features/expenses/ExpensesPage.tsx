@@ -2,6 +2,11 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ReceiptText, RefreshCcw, Scale } from "lucide-react";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import {
+  fieldClassName,
+  optionClassName,
+  selectClassName,
+} from "../../components/ui/formStyles";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { getGroups } from "../groups/groupsApi";
@@ -50,6 +55,12 @@ export function ExpensesPage() {
     () => members.filter((member) => isMemberActiveOn(member, expenseDate)),
     [members, expenseDate],
   );
+  const hasExpenseMembers = expenseMembers.length > 0;
+  const canCreateExpense =
+    Boolean(activeGroupId) &&
+    Boolean(paidBy) &&
+    participants.length > 0 &&
+    hasExpenseMembers;
 
   async function loadData() {
     setLoading(true);
@@ -100,6 +111,27 @@ export function ExpensesPage() {
         ? current.filter((id) => id !== userId)
         : [...current, userId],
     );
+  }
+
+  function getMemberDateStatus(member: GroupMembership, date: string) {
+    if (!date) return "active";
+
+    if (member.joined_at > date) {
+      return `joins ${member.joined_at}`;
+    }
+
+    if (member.left_at && member.left_at < date) {
+      return `left ${member.left_at}`;
+    }
+
+    return "active";
+  }
+
+  function renderMemberOptionLabel(member: GroupMembership, date: string) {
+    const status = getMemberDateStatus(member, date);
+    const name = member.user_detail.username;
+
+    return status === "active" ? name : `${name} (${status})`;
   }
 
   async function handleCreateExpense(event: FormEvent<HTMLFormElement>) {
@@ -209,58 +241,74 @@ export function ExpensesPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Description"
-              className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+              className={fieldClassName}
             />
             <div className="grid gap-3 md:grid-cols-3">
               <input
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="Amount"
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={fieldClassName}
               />
               <select
                 value={currency}
                 onChange={(event) =>
                   setCurrency(event.target.value as "INR" | "USD")
                 }
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={selectClassName}
               >
-                <option value="INR">INR</option>
-                <option value="USD">USD</option>
+                <option className={optionClassName} value="INR">INR</option>
+                <option className={optionClassName} value="USD">USD</option>
               </select>
               <input
                 type="date"
                 value={expenseDate}
                 onChange={(event) => setExpenseDate(event.target.value)}
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={fieldClassName}
               />
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <select
                 value={paidBy}
                 onChange={(event) => setPaidBy(event.target.value)}
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={selectClassName}
               >
-                <option value="">Paid by</option>
-                {expenseMembers.map((member) => (
-                  <option key={member.id} value={member.user}>
-                    {member.user_detail.username}
+                <option className={optionClassName} value="">Paid by</option>
+                {members.map((member) => {
+                  const isActive = isMemberActiveOn(member, expenseDate);
+
+                  return (
+                  <option
+                    className={optionClassName}
+                    disabled={!isActive}
+                    key={member.id}
+                    value={member.user}
+                  >
+                    {renderMemberOptionLabel(member, expenseDate)}
                   </option>
-                ))}
+                  );
+                })}
               </select>
               <select
                 value={splitType}
                 onChange={(event) =>
                   setSplitType(event.target.value as typeof splitType)
                 }
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={selectClassName}
               >
-                <option value="EQUAL">Equal</option>
-                <option value="EXACT">Exact</option>
-                <option value="PERCENTAGE">Percentage</option>
-                <option value="SHARE">Share</option>
+                <option className={optionClassName} value="EQUAL">Equal</option>
+                <option className={optionClassName} value="EXACT">Exact</option>
+                <option className={optionClassName} value="PERCENTAGE">
+                  Percentage
+                </option>
+                <option className={optionClassName} value="SHARE">Share</option>
               </select>
             </div>
+            <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-5 text-ledger-muted">
+              Payer and participant choices are date-aware. Historical members
+              still appear, but they are disabled when the selected date is
+              outside their membership period.
+            </p>
             <div className="grid gap-2 md:grid-cols-3">
               {expenseMembers.map((member) => (
                 <label
@@ -286,9 +334,12 @@ export function ExpensesPage() {
               value={splitValuesRaw}
               onChange={(event) => setSplitValuesRaw(event.target.value)}
               placeholder="Split details for exact, percentage, or share"
-              className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+              className={fieldClassName}
             />
-            <button className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg">
+            <button
+              disabled={!canCreateExpense}
+              className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
               Create expense
             </button>
           </div>
@@ -304,11 +355,11 @@ export function ExpensesPage() {
               <select
                 value={settlementFrom}
                 onChange={(event) => setSettlementFrom(event.target.value)}
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={selectClassName}
               >
-                <option value="">Paid by</option>
+                <option className={optionClassName} value="">Paid by</option>
                 {members.map((member) => (
-                  <option key={member.id} value={member.user}>
+                  <option className={optionClassName} key={member.id} value={member.user}>
                     {member.user_detail.username}
                   </option>
                 ))}
@@ -316,11 +367,11 @@ export function ExpensesPage() {
               <select
                 value={settlementTo}
                 onChange={(event) => setSettlementTo(event.target.value)}
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={selectClassName}
               >
-                <option value="">Paid to</option>
+                <option className={optionClassName} value="">Paid to</option>
                 {members.map((member) => (
-                  <option key={member.id} value={member.user}>
+                  <option className={optionClassName} key={member.id} value={member.user}>
                     {member.user_detail.username}
                   </option>
                 ))}
@@ -331,13 +382,13 @@ export function ExpensesPage() {
                 value={settlementAmount}
                 onChange={(event) => setSettlementAmount(event.target.value)}
                 placeholder="Amount in rupees"
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={fieldClassName}
               />
               <input
                 type="date"
                 value={settlementDate}
                 onChange={(event) => setSettlementDate(event.target.value)}
-                className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 outline-none focus:border-ledger-green/40"
+                className={fieldClassName}
               />
             </div>
             <button className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg">

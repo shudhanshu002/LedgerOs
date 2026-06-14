@@ -61,6 +61,14 @@ export function ExpensesPage() {
     Boolean(paidBy) &&
     participants.length > 0 &&
     hasExpenseMembers;
+  const settlementAmountNumber = Number(settlementAmount);
+  const canCreateSettlement =
+    Boolean(activeGroupId) &&
+    Boolean(settlementFrom) &&
+    Boolean(settlementTo) &&
+    settlementFrom !== settlementTo &&
+    Number.isFinite(settlementAmountNumber) &&
+    settlementAmountNumber > 0;
 
   async function loadData() {
     setLoading(true);
@@ -134,6 +142,47 @@ export function ExpensesPage() {
     return status === "active" ? name : `${name} (${status})`;
   }
 
+  function getMemberName(userId: string) {
+    return (
+      members.find((member) => member.user === Number(userId))?.user_detail
+        .username ?? "Someone"
+    );
+  }
+
+  function formatApiError(error: unknown, fallback: string) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "response" in error
+    ) {
+      const response = (
+        error as {
+          response?: {
+            data?: unknown;
+          };
+        }
+      ).response;
+
+      if (typeof response?.data === "string") {
+        return response.data;
+      }
+
+      if (response?.data && typeof response.data === "object") {
+        return Object.entries(response.data as Record<string, unknown>)
+          .map(([field, messages]) => {
+            if (Array.isArray(messages)) {
+              return `${field}: ${messages.join(", ")}`;
+            }
+
+            return `${field}: ${String(messages)}`;
+          })
+          .join(" ");
+      }
+    }
+
+    return fallback;
+  }
+
   async function handleCreateExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -169,21 +218,34 @@ export function ExpensesPage() {
 
     if (!activeGroupId) return;
 
+    if (!canCreateSettlement) {
+      setMessage(
+        settlementFrom === settlementTo && settlementFrom
+          ? "Paid by and paid to must be different people."
+          : "Choose who paid, who received, and a payment amount greater than zero.",
+      );
+      return;
+    }
+
     try {
       await createSettlement({
         group: activeGroupId,
         paid_by: Number(settlementFrom),
         paid_to: Number(settlementTo),
-        amount_paise: Math.round(Number(settlementAmount) * 100),
+        amount_paise: Math.round(settlementAmountNumber * 100),
         settlement_date: settlementDate,
         note: "Manual settlement",
       });
 
-      setMessage("Settlement recorded.");
+      setMessage(
+        `Payment recorded: ${getMemberName(settlementFrom)} paid ${getMemberName(
+          settlementTo,
+        )} Rs ${settlementAmountNumber.toFixed(2)}.`,
+      );
       setSettlementAmount("");
       await loadData();
-    } catch {
-      setMessage("Could not record settlement.");
+    } catch (error) {
+      setMessage(formatApiError(error, "Could not record settlement."));
     }
   }
 
@@ -391,7 +453,10 @@ export function ExpensesPage() {
                 className={fieldClassName}
               />
             </div>
-            <button className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg">
+            <button
+              disabled={!canCreateSettlement}
+              className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
               Record payment
             </button>
           </div>
@@ -451,21 +516,27 @@ export function ExpensesPage() {
           </h2>
           <p className="mt-2 text-sm leading-6 text-ledger-muted">
             These are settlements/paybacks. They affect balances but are not
-            split like expenses.
+            split like expenses. Your manual payment appears here after it is
+            saved.
           </p>
 
           <div className="mt-5 space-y-3">
             {settlements.map((settlement) => (
               <div key={settlement.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="flex justify-between gap-3">
-                  <p className="font-semibold">{settlement.note || "Settlement"}</p>
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                  <div>
+                    <p className="font-semibold">
+                      {settlement.paid_by_detail?.username ?? "Unknown"} paid{" "}
+                      {settlement.paid_to_detail?.username ?? "Unknown"}
+                    </p>
+                    <p className="mt-1 text-xs text-ledger-muted">
+                      {settlement.settlement_date} -{" "}
+                      {settlement.note || "Manual settlement"} - Settlement ID:{" "}
+                      {settlement.id}
+                    </p>
+                  </div>
                   <StatusBadge tone="blue">{`Rs ${settlement.amount_rupees}`}</StatusBadge>
                 </div>
-                <p className="mt-1 text-xs text-ledger-muted">
-                  {settlement.settlement_date} -{" "}
-                  {settlement.paid_by_detail?.username ?? "Unknown"} paid{" "}
-                  {settlement.paid_to_detail?.username ?? "Unknown"}
-                </p>
               </div>
             ))}
 

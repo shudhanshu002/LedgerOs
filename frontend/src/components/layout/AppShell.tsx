@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Activity,
   BrainCircuit,
@@ -6,16 +6,23 @@ import {
   FileWarning,
   LayoutDashboard,
   LogOut,
+  ReceiptText,
   ShieldCheck,
   Users,
 } from "lucide-react";
 import clsx from "clsx";
 import { clearTokens } from "../../lib/api";
+import { useActiveWorkspaceName } from "../../hooks/useActiveWorkspaceName";
+import { FooterSignature } from "./FooterSignature";
+import { MobileNav } from "./MobileNav";
+import { RouteTransitionShell } from "./RouteTransitionShell";
+import { WorkspaceStatusBar } from "./WorkspaceStatusBar";
 
 const navItems = [
   { label: "Command Center", href: "/dashboard", icon: LayoutDashboard },
   { label: "Groups", href: "/groups", icon: Users },
   { label: "Import Cockpit", href: "/imports", icon: FileWarning },
+  { label: "Expenses", href: "/expenses", icon: ReceiptText },
   { label: "AI Review", href: "/ai-review", icon: BrainCircuit },
   { label: "Balances", href: "/balances", icon: CircleDollarSign },
   { label: "Audit Trail", href: "/audit", icon: ShieldCheck },
@@ -23,6 +30,7 @@ const navItems = [
 
 export function AppShell() {
   const navigate = useNavigate();
+  const workspaceName = useActiveWorkspaceName();
 
   function handleLogout() {
     clearTokens();
@@ -31,6 +39,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-ledger-bg ledger-grid">
+        <MobileNav/>
       <div className="flex min-h-screen">
         <aside className="hidden w-72 border-r border-white/10 bg-black/20 px-5 py-6 backdrop-blur-xl lg:block">
           <div className="flex items-center gap-3">
@@ -53,7 +62,7 @@ export function AppShell() {
               Active workspace
             </p>
             <p className="mt-2 font-display text-lg font-semibold">
-              Goa Trip 2026
+              {workspaceName}
             </p>
             <p className="mt-1 text-xs leading-5 text-ledger-muted">
               Import safety, review decisions, balances, and audit trail.
@@ -93,9 +102,11 @@ export function AppShell() {
           </button>
         </aside>
 
-        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">
+        <main className="flex-1 px-4 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-5">
           <div className="mx-auto max-w-7xl">
-            <Outlet />
+            <WorkspaceStatusBar />
+            <RouteTransitionShell />
+            <FooterSignature />
           </div>
         </main>
       </div>

@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -26,6 +27,30 @@ class MeView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
             }
+        )
+
+
+class UserListView(APIView):
+    """
+    Returns users that can be added to groups or selected in expense forms.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        users = User.objects.order_by("username")
+
+        return Response(
+            [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                }
+                for user in users
+            ]
         )
 
 

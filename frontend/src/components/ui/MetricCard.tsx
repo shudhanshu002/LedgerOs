@@ -9,6 +9,7 @@ type MetricCardProps = {
   helper?: string;
   icon: LucideIcon;
   tone?: Tone;
+  loading?: boolean;
 };
 
 const toneClasses: Record<Tone, string> = {
@@ -25,6 +26,7 @@ export function MetricCard({
   helper,
   icon: Icon,
   tone = "green",
+  loading = false,
 }: MetricCardProps) {
   return (
     <div className="glass-panel ring-gradient rounded-3xl p-5">
@@ -32,7 +34,11 @@ export function MetricCard({
         <div>
           <p className="text-sm text-ledger-muted">{label}</p>
           <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-white">
-            {value}
+            {loading ? (
+              <span className="inline-block h-8 w-16 animate-pulse rounded-xl bg-white/10 align-middle" />
+            ) : (
+              value
+            )}
           </p>
           {helper ? (
             <p className="mt-2 text-xs leading-5 text-ledger-muted">

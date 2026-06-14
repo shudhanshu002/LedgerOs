@@ -67,6 +67,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
     paid_by_detail = UserMiniSerializer(source="paid_by", read_only=True)
     amount_rupees = serializers.SerializerMethodField()
+    source_import_row_number = serializers.SerializerMethodField()
     splits = ExpenseSplitSerializer(many=True, read_only=True)
 
     class Meta:
@@ -86,6 +87,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "split_type",
             "splits",
             "source_import_row",
+            "source_import_row_number",
             "created_at",
             "updated_at",
         ]
@@ -99,6 +101,9 @@ class ExpenseSerializer(serializers.ModelSerializer):
 
     def get_amount_rupees(self, obj):
         return str(paise_to_rupees(obj.amount_paise))
+
+    def get_source_import_row_number(self, obj):
+        return obj.source_import_row.row_number if obj.source_import_row else None
 
 
 class ManualExpenseCreateSerializer(serializers.Serializer):

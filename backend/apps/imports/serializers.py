@@ -7,6 +7,7 @@ from apps.imports.models import (
     ImportIssue,
     ImportRow,
 )
+from apps.imports.filename_display import humanize_filename
 
 
 class UserMiniSerializer(serializers.ModelSerializer):
@@ -40,6 +41,8 @@ class ImportIssueSerializer(serializers.ModelSerializer):
         source="reviewed_by",
         read_only=True,
     )
+    row_number = serializers.SerializerMethodField()
+    row_status = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportIssue
@@ -47,6 +50,8 @@ class ImportIssueSerializer(serializers.ModelSerializer):
             "id",
             "batch",
             "row",
+            "row_number",
+            "row_status",
             "code",
             "severity",
             "message",
@@ -74,6 +79,12 @@ class ImportIssueSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_row_number(self, obj):
+        return obj.row.row_number if obj.row else None
+
+    def get_row_status(self, obj):
+        return obj.row.status if obj.row else None
 
 
 class ImportDecisionSerializer(serializers.ModelSerializer):
@@ -170,6 +181,7 @@ class ImportBatchSerializer(serializers.ModelSerializer):
     )
 
     issue_count = serializers.SerializerMethodField()
+    display_filename = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportBatch
@@ -179,6 +191,7 @@ class ImportBatchSerializer(serializers.ModelSerializer):
             "uploaded_by",
             "uploaded_by_detail",
             "original_filename",
+            "display_filename",
             "status",
             "total_rows",
             "summary",
@@ -191,6 +204,7 @@ class ImportBatchSerializer(serializers.ModelSerializer):
             "id",
             "uploaded_by",
             "original_filename",
+            "display_filename",
             "status",
             "total_rows",
             "summary",
@@ -200,6 +214,9 @@ class ImportBatchSerializer(serializers.ModelSerializer):
 
     def get_issue_count(self, obj):
         return obj.issues.count()
+
+    def get_display_filename(self, obj):
+        return humanize_filename(obj.original_filename)
 
 
 class ImportBatchListSerializer(serializers.ModelSerializer):
@@ -215,6 +232,7 @@ class ImportBatchListSerializer(serializers.ModelSerializer):
     )
 
     issue_count = serializers.SerializerMethodField()
+    display_filename = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportBatch
@@ -223,6 +241,7 @@ class ImportBatchListSerializer(serializers.ModelSerializer):
             "group",
             "uploaded_by_detail",
             "original_filename",
+            "display_filename",
             "status",
             "total_rows",
             "summary",
@@ -232,6 +251,9 @@ class ImportBatchListSerializer(serializers.ModelSerializer):
 
     def get_issue_count(self, obj):
         return obj.issues.count()
+
+    def get_display_filename(self, obj):
+        return humanize_filename(obj.original_filename)
 
 
 class ImportUploadSerializer(serializers.Serializer):

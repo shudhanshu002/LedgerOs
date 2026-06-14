@@ -18,6 +18,7 @@ from apps.imports.serializers import (
     ImportIssueSerializer,
     ImportUploadSerializer,
 )
+from apps.imports.filename_display import humanize_filename
 from apps.imports.services.anomaly_detector import refresh_batch_summary
 from apps.imports.services.commit_import import CommitImportError, commit_import_batch
 from apps.imports.services.parser import ImportParserError, create_import_batch_from_csv
@@ -165,6 +166,32 @@ def recalculate_row_status_after_review(row: ImportRow | None):
     row.save(update_fields=["status", "updated_at"])
 
 
+def close_open_row_issues(
+    *,
+    row: ImportRow | None,
+    reviewer,
+    reviewed_at,
+    status: str,
+    note: str,
+):
+    """
+    Row-level decisions such as SKIP_ROW and REJECT apply to the whole CSV row.
+    Close every open issue on that row so the review queue does not keep showing
+    stale actions for a row the user already skipped.
+    """
+
+    if row is None:
+        return
+
+    row.issues.filter(status=ImportIssue.Status.OPEN).update(
+        status=status,
+        reviewed_by=reviewer,
+        reviewed_at=reviewed_at,
+        resolution_note=note,
+        updated_at=reviewed_at,
+    )
+
+
 def apply_import_decision(
     *,
     issue: ImportIssue,
@@ -198,9 +225,10 @@ def apply_import_decision(
 
     row = issue.row
     decision = decision.upper()
+    reviewed_at = timezone.now()
 
     issue.reviewed_by = reviewer
-    issue.reviewed_at = timezone.now()
+    issue.reviewed_at = reviewed_at
     issue.resolution_note = note
 
     if decision == "APPROVE":
@@ -213,6 +241,13 @@ def apply_import_decision(
         issue.status = ImportIssue.Status.RESOLVED
 
         if row:
+            close_open_row_issues(
+                row=row,
+                reviewer=reviewer,
+                reviewed_at=reviewed_at,
+                status=ImportIssue.Status.RESOLVED,
+                note=note,
+            )
             row.status = ImportRow.Status.SKIPPED
             row.save(update_fields=["status", "updated_at"])
 
@@ -228,6 +263,13 @@ def apply_import_decision(
         issue.status = ImportIssue.Status.REJECTED
 
         if row:
+            close_open_row_issues(
+                row=row,
+                reviewer=reviewer,
+                reviewed_at=reviewed_at,
+                status=ImportIssue.Status.REJECTED,
+                note=note,
+            )
             row.status = ImportRow.Status.SKIPPED
             row.save(update_fields=["status", "updated_at"])
 
@@ -330,6 +372,7 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
                 "batch_id": batch.id,
                 "group_id": group.id,
                 "filename": batch.original_filename,
+                "display_filename": humanize_filename(batch.original_filename),
                 "total_rows": batch.total_rows,
                 "summary": batch.summary,
             },
@@ -337,6 +380,7 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
             metadata={
                 "group_id": group.id,
                 "filename": batch.original_filename,
+                "display_filename": humanize_filename(batch.original_filename),
             },
         )
 
@@ -468,15 +512,21 @@ class ImportIssueViewSet(viewsets.ReadOnlyModelViewSet):
 
         decision_value = serializer.validated_data["decision"]
         note = serializer.validated_data.get("note", "")
+        issue_id = self.get_object().id
 
         with transaction.atomic():
             issue = (
-                ImportIssue.objects.select_for_update()
-                .select_related("batch", "batch__group", "row")
-                .get(id=self.get_object().id)
+                ImportIssue.objects.select_for_update(of=("self",))
+                .select_related("batch", "batch__group")
+                .get(id=issue_id)
             )
 
             batch = issue.batch
+
+            if issue.row_id:
+                issue.row = ImportRow.objects.select_for_update().get(
+                    id=issue.row_id
+                )
 
             if not user_is_group_admin(batch.group, request.user):
                 raise PermissionDenied(
@@ -515,6 +565,7 @@ class ImportIssueViewSet(viewsets.ReadOnlyModelViewSet):
                 after=after,
                 note=note,
                 metadata={
+                    "group_id": batch.group_id,
                     "decision": decision_value,
                     "batch_id": batch.id,
                     "row_id": issue.row_id,

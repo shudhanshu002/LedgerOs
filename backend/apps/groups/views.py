@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -76,7 +77,7 @@ class GroupViewSet(viewsets.ModelViewSet):
             group=group,
             user=self.request.user,
             role=GroupMembership.Role.ADMIN,
-            joined_at="2024-02-01",
+            joined_at=timezone.localdate(),
         )
 
     def perform_update(self, serializer):

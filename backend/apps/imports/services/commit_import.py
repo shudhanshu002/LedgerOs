@@ -152,9 +152,18 @@ def get_original_amount(normalized: dict) -> Decimal:
         raise CommitImportError(str(exc)) from exc
 
 
-def validate_people_active(group, users: list[User], expense_date):
+def validate_people_active(
+    group,
+    users: list[User],
+    expense_date,
+    *,
+    allow_review_override: bool = False,
+):
     for user in users:
         if not user_is_active_on(group, user, expense_date):
+            if allow_review_override:
+                continue
+
             raise CommitImportError(
                 f"{user.username} was not active on {expense_date}."
             )
@@ -194,6 +203,7 @@ def commit_expense_row(row: ImportRow) -> Expense:
         group,
         [payer] + participants,
         expense_date,
+        allow_review_override=issue_approved(row, "INACTIVE_MEMBER"),
     )
 
     try:
@@ -215,6 +225,7 @@ def commit_expense_row(row: ImportRow) -> Expense:
         group,
         list(split_users.values()),
         expense_date,
+        allow_review_override=issue_approved(row, "INACTIVE_MEMBER"),
     )
 
     expense = Expense.objects.create(
@@ -303,6 +314,7 @@ def commit_settlement_row(row: ImportRow) -> Settlement:
         group,
         [paid_by, paid_to],
         settlement_date,
+        allow_review_override=issue_approved(row, "INACTIVE_MEMBER"),
     )
 
     settlement = Settlement.objects.create(

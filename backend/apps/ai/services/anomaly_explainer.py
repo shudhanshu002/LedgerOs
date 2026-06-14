@@ -1,229 +1,338 @@
 from collections import Counter, defaultdict
 
 from apps.imports.models import ImportBatch, ImportIssue
+from apps.imports.filename_display import humanize_filename
 
 
-def group_issues_by_code(issues):
-    """
-    Groups import issues by issue code.
+ISSUE_EXPLANATIONS = {
+    "INVALID_DATE": {
+        "meaning": "The date could not be parsed safely.",
+        "risk": "If the app guesses the date, the expense may affect the wrong membership period.",
+        "recommended_action": "Fix the date manually before importing.",
+    },
+    "AMBIGUOUS_DATE": {
+        "meaning": "The date can be interpreted in more than one way.",
+        "risk": "For example, 04/05/2026 could mean 4 May or 5 April.",
+        "recommended_action": "Ask the user to confirm the exact date.",
+    },
+    "MISSING_PAYER": {
+        "meaning": "The row does not say who paid.",
+        "risk": "Balances cannot be calculated without knowing who paid.",
+        "recommended_action": "Select the payer manually.",
+    },
+    "UNKNOWN_MEMBER": {
+        "meaning": "The row contains a person who is not found in the app users.",
+        "risk": "The app cannot safely assign debt to an unknown person.",
+        "recommended_action": "Map the name to an existing user or create the user first.",
+    },
+    "INACTIVE_MEMBER": {
+        "meaning": "A payer or participant was not active in the group on the expense date.",
+        "risk": "This could incorrectly charge someone before joining or after leaving.",
+        "recommended_action": "Review membership timeline before approving.",
+    },
+    "INVALID_AMOUNT": {
+        "meaning": "The amount is missing or not a valid number.",
+        "risk": "The app cannot calculate balances from invalid money data.",
+        "recommended_action": "Correct the amount manually.",
+    },
+    "AMOUNT_PRECISION": {
+        "meaning": "The amount has more than two decimal places.",
+        "risk": "Money is stored in paise, so rounding must be explicit.",
+        "recommended_action": "Approve rounding or fix the amount.",
+    },
+    "NEGATIVE_AMOUNT": {
+        "meaning": "The amount is negative.",
+        "risk": "Negative values may represent refunds, but they should not be treated as normal expenses silently.",
+        "recommended_action": "Approve as refund only if that is the intended meaning.",
+    },
+    "ZERO_AMOUNT": {
+        "meaning": "The amount is zero.",
+        "risk": "Zero amount expenses do not affect balances and usually indicate bad data.",
+        "recommended_action": "Skip the row or correct the amount.",
+    },
+    "MISSING_CURRENCY": {
+        "meaning": "The currency column is empty.",
+        "risk": "The app should not assume INR silently because that can corrupt balances.",
+        "recommended_action": "Select the correct currency before import.",
+    },
+    "UNSUPPORTED_CURRENCY": {
+        "meaning": "The currency is not supported by the app.",
+        "risk": "Unsupported currency cannot be converted into the INR ledger safely.",
+        "recommended_action": "Map the currency or reject the row.",
+    },
+    "USD_CONVERTED": {
+        "meaning": "The row is in USD and will be converted to INR.",
+        "risk": "Foreign exchange conversion changes the ledger amount.",
+        "recommended_action": "Approve conversion using the configured USD_TO_INR_RATE.",
+    },
+    "SETTLEMENT_AS_EXPENSE": {
+        "meaning": "The row looks like a settlement/payment, not a shared expense.",
+        "risk": "If imported as an expense, it will increase debt instead of reducing debt.",
+        "recommended_action": "Import it as a settlement after review.",
+    },
+    "DUPLICATE_EXACT": {
+        "meaning": "This row appears to be an exact duplicate of another row.",
+        "risk": "Importing both will double-count the same expense.",
+        "recommended_action": "Skip the duplicate unless it is intentionally repeated.",
+    },
+    "DUPLICATE_CONFLICT": {
+        "meaning": "Two rows look like the same expense but contain conflicting values.",
+        "risk": "The app cannot decide which amount is correct automatically.",
+        "recommended_action": "Choose the correct row manually.",
+    },
+    "POSSIBLE_DUPLICATE": {
+        "meaning": "Two rows look similar but are not exact duplicates.",
+        "risk": "They may be the same real-world expense written differently.",
+        "recommended_action": "Review both rows before committing.",
+    },
+    "INVALID_SPLIT_TYPE": {
+        "meaning": "The split type is missing or unsupported.",
+        "risk": "The app cannot calculate how much each person owes.",
+        "recommended_action": "Fix or map the split type.",
+    },
+    "SPLIT_DETAILS_WITH_EQUAL": {
+        "meaning": "The row says equal split but also contains split details.",
+        "risk": "The app should not guess whether to use equal split or the provided details.",
+        "recommended_action": "Either clear split details or change the split type.",
+    },
+    "INVALID_PERCENTAGE_TOTAL": {
+        "meaning": "Percentage split values do not total 100.",
+        "risk": "The full expense amount would not be allocated correctly.",
+        "recommended_action": "Fix the percentages.",
+    },
+    "INVALID_EXACT_TOTAL": {
+        "meaning": "Exact split values do not match the expense amount.",
+        "risk": "The split would create missing or extra money in balances.",
+        "recommended_action": "Fix exact split amounts.",
+    },
+    "INVALID_SHARE_VALUE": {
+        "meaning": "One or more share values are invalid.",
+        "risk": "Share split requires positive share values.",
+        "recommended_action": "Fix share values.",
+    },
+    "MISSING_PARTICIPANTS": {
+        "meaning": "No split participants were found.",
+        "risk": "The app cannot assign owed amounts.",
+        "recommended_action": "Add participants.",
+    },
+    "EMPTY_DESCRIPTION": {
+        "meaning": "The row has no useful description.",
+        "risk": "Users cannot easily trace why they owe money.",
+        "recommended_action": "Add or confirm the description.",
+    },
+}
 
-    Example:
-    {
-      "DUPLICATE_EXACT": 2,
-      "USD_CONVERTED": 3
-    }
-    """
 
-    return Counter(issue.code for issue in issues)
-
-
-def group_issues_by_severity(issues):
-    """
-    Groups import issues by severity.
-
-    Example:
-    {
-      "INFO": 2,
-      "WARNING": 5,
-      "ERROR": 3
-    }
-    """
-
-    return Counter(issue.severity for issue in issues)
-
-
-def build_issue_samples(issues, limit_per_code=3):
-    """
-    Creates small samples per issue type.
-
-    We do not send or expose the entire CSV unnecessarily.
-    This keeps the explanation focused and safe.
-    """
-
-    samples = defaultdict(list)
+def group_issues_by_code(issues) -> dict:
+    grouped = defaultdict(list)
 
     for issue in issues:
-        if len(samples[issue.code]) >= limit_per_code:
-            continue
+        grouped[issue.code].append(issue)
 
-        samples[issue.code].append(
+    return grouped
+
+
+def group_issues_by_severity(issues) -> dict:
+    counter = Counter(issue.severity for issue in issues)
+
+    return {
+        "info": counter.get(ImportIssue.Severity.INFO, 0),
+        "warning": counter.get(ImportIssue.Severity.WARNING, 0),
+        "error": counter.get(ImportIssue.Severity.ERROR, 0),
+    }
+
+
+def build_issue_samples(issues, limit: int = 3) -> list[dict]:
+    """
+    Returns a few row examples for the explanation.
+
+    We intentionally do not return every row here because the UI/report
+    should stay readable.
+    """
+
+    samples = []
+
+    for issue in issues[:limit]:
+        samples.append(
             {
                 "row_number": issue.row.row_number if issue.row else None,
                 "message": issue.message,
                 "suggested_action": issue.suggested_action,
+                "status": issue.status,
             }
         )
 
-    return dict(samples)
+    return samples
 
 
-def explain_issue_code(code: str, count: int) -> str:
-    """
-    Deterministic explanation for one issue code.
+def explain_issue_code(code: str, issues: list[ImportIssue]) -> dict:
+    explanation = ISSUE_EXPLANATIONS.get(
+        code,
+        {
+            "meaning": "This issue was detected by the import validator.",
+            "risk": "The row may affect balances incorrectly if imported without review.",
+            "recommended_action": "Review this issue manually.",
+        },
+    )
 
-    This gives us an AI-like explanation without depending on an external API.
-    Later we can replace/enhance this with OpenAI/Gemini safely.
-    """
+    status_counts = Counter(issue.status for issue in issues)
+    ordered_issues = sorted(
+        issues,
+        key=lambda issue: (
+            issue.status != ImportIssue.Status.OPEN,
+            issue.row.row_number if issue.row else 999999,
+        ),
+    )
 
-    explanations = {
-        "INVALID_DATE": (
-            f"{count} row(s) have dates the importer could not parse. "
-            "These rows are blocked because guessing dates could charge the wrong people."
-        ),
-        "MISSING_PAYER": (
-            f"{count} row(s) are missing payer information. "
-            "These rows are blocked because every expense must have a person who paid."
-        ),
-        "UNKNOWN_MEMBER": (
-            f"{count} row(s) contain people who are not known group members. "
-            "These need review so the user can map or create the member."
-        ),
-        "INVALID_AMOUNT": (
-            f"{count} row(s) contain invalid amount values. "
-            "These rows are blocked because money values must be numeric."
-        ),
-        "NEGATIVE_AMOUNT": (
-            f"{count} row(s) contain negative amounts. "
-            "These may be refunds, but the app does not assume that without approval."
-        ),
-        "ZERO_AMOUNT": (
-            f"{count} row(s) contain zero amount. "
-            "These are blocked because they do not affect balances and may indicate bad data."
-        ),
-        "UNSUPPORTED_CURRENCY": (
-            f"{count} row(s) use unsupported currencies. "
-            "Only documented currencies should enter the ledger."
-        ),
-        "USD_CONVERTED": (
-            f"{count} row(s) are in USD. "
-            "They will be converted into INR using the configured fixed exchange-rate policy."
-        ),
-        "SETTLEMENT_AS_EXPENSE": (
-            f"{count} row(s) look like repayments or settlements, not actual expenses. "
-            "They should be reviewed and imported as settlements if approved."
-        ),
-        "DUPLICATE_EXACT": (
-            f"{count} row(s) look like exact duplicates. "
-            "They are not silently deleted; a user must approve skipping or keeping them."
-        ),
-        "DUPLICATE_CONFLICT": (
-            f"{count} row(s) look like the same expense but have conflicting amounts. "
-            "The app does not choose a winner automatically."
-        ),
-        "INACTIVE_MEMBER": (
-            f"{count} row(s) include a person who was not active on the expense date. "
-            "This protects cases like Sam joining mid-April or Meera leaving after March."
-        ),
-        "INVALID_SPLIT_TYPE": (
-            f"{count} row(s) use unsupported or malformed split information. "
-            "These rows are blocked until the split can be understood."
-        ),
-        "INVALID_PERCENTAGE_TOTAL": (
-            f"{count} row(s) have percentage splits that do not total 100%. "
-            "These rows are blocked because the owed amounts would be wrong."
-        ),
-        "INVALID_EXACT_TOTAL": (
-            f"{count} row(s) have exact split values that do not match the total expense amount. "
-            "These rows are blocked until fixed."
-        ),
-        "INVALID_SHARE_VALUE": (
-            f"{count} row(s) have invalid share values. "
-            "Share values must be positive."
-        ),
-        "MISSING_PARTICIPANTS": (
-            f"{count} row(s) have no participants. "
-            "An expense cannot be split without participants."
-        ),
-        "EMPTY_DESCRIPTION": (
-            f"{count} row(s) have empty descriptions. "
-            "These are warnings because descriptions help users trace balances later."
-        ),
+    return {
+        "code": code,
+        "count": len(issues),
+        "open_count": status_counts.get(ImportIssue.Status.OPEN, 0),
+        "approved_count": status_counts.get(ImportIssue.Status.APPROVED, 0),
+        "resolved_count": status_counts.get(ImportIssue.Status.RESOLVED, 0),
+        "rejected_count": status_counts.get(ImportIssue.Status.REJECTED, 0),
+        "severity": issues[0].severity if issues else None,
+        "meaning": explanation["meaning"],
+        "risk": explanation["risk"],
+        "recommended_action": explanation["recommended_action"],
+        "samples": build_issue_samples(ordered_issues),
     }
 
-    return explanations.get(
-        code,
-        f"{count} row(s) have issue type {code}. These should be reviewed before committing.",
+
+def build_summary_sentence(
+    batch: ImportBatch,
+    severity_counts: dict,
+    open_severity_counts: dict,
+    total_issues: int,
+) -> str:
+    """
+    Builds one human-readable summary sentence.
+    """
+
+    total_rows = batch.total_rows
+    error_count = severity_counts.get("error", 0)
+    warning_count = severity_counts.get("warning", 0)
+    info_count = severity_counts.get("info", 0)
+    open_error_count = open_severity_counts.get("error", 0)
+    open_warning_count = open_severity_counts.get("warning", 0)
+    open_info_count = open_severity_counts.get("info", 0)
+    open_total = open_error_count + open_warning_count + open_info_count
+
+    if total_issues == 0:
+        return (
+            f"This CSV has {total_rows} rows and no detected issues. "
+            "It is ready to commit."
+        )
+
+    return (
+        f"This CSV has {total_rows} rows and {total_issues} detected issues: "
+        f"{error_count} errors, {warning_count} warnings, and {info_count} info items. "
+        f"Current open review work is {open_total} issues: "
+        f"{open_error_count} errors, {open_warning_count} warnings, and "
+        f"{open_info_count} info items. "
+        "Only open issues still require action; approved or committed rows are kept for audit."
     )
+
+
+def build_commit_guidance(open_severity_counts: dict, row_counts: dict) -> list[str]:
+    guidance = []
+
+    valid_rows = row_counts.get("valid_rows", 0)
+    blocked_rows = row_counts.get("blocked_rows", 0)
+    needs_review_rows = row_counts.get("needs_review_rows", 0)
+
+    if open_severity_counts.get("error", 0) > 0:
+        guidance.append(
+            "Open error-level issues remain. Fix, skip, or reject those rows before they can enter the ledger."
+        )
+
+    if open_severity_counts.get("warning", 0) > 0:
+        guidance.append(
+            "Open warning-level issues still need an operator decision because they may change balances or membership responsibility."
+        )
+
+    if open_severity_counts.get("info", 0) > 0:
+        guidance.append(
+            "Open info-level issues document assumptions such as USD conversion; approve or skip them before committing those rows."
+        )
+
+    if valid_rows > 0:
+        guidance.append(
+            f"{valid_rows} row(s) are valid and can be committed now."
+        )
+    elif needs_review_rows or blocked_rows:
+        guidance.append(
+            "No valid rows are ready right now. Resolve the remaining review or blocked rows first."
+        )
+
+    if not guidance:
+        guidance.append(
+            "No review issues are open. The batch can be committed."
+        )
+
+    return guidance
 
 
 def build_human_summary(batch: ImportBatch) -> dict:
     """
-    Builds a deterministic import explanation.
+    Builds an AI-style import explanation.
 
     Important:
-    This is intentionally not used for financial calculations.
-    It only explains already-detected ImportIssue records.
+    This is deterministic and does not call an external LLM.
+    That keeps the project reliable for demo and testing.
     """
 
     issues = list(
-        ImportIssue.objects
-        .filter(batch=batch)
-        .select_related("row")
+        batch.issues
+        .select_related("row", "reviewed_by")
         .order_by("severity", "code", "row__row_number")
     )
 
-    by_code = group_issues_by_code(issues)
-    by_severity = group_issues_by_severity(issues)
-    samples = build_issue_samples(issues)
-
-    explanation_lines = []
-
-    if not issues:
-        explanation_lines.append(
-            "No anomalies were detected in this import batch."
-        )
-    else:
-        explanation_lines.append(
-            f"This import found {len(issues)} issue(s) across {batch.total_rows} CSV row(s)."
-        )
-
-        error_count = by_severity.get(ImportIssue.Severity.ERROR, 0)
-        warning_count = by_severity.get(ImportIssue.Severity.WARNING, 0)
-        info_count = by_severity.get(ImportIssue.Severity.INFO, 0)
-
-        explanation_lines.append(
-            f"There are {error_count} error(s), {warning_count} warning(s), and {info_count} info item(s)."
-        )
-
-        if error_count:
-            explanation_lines.append(
-                "Rows with unresolved errors are blocked from being committed."
-            )
-
-        if warning_count:
-            explanation_lines.append(
-                "Rows with warnings need user review before they should affect balances."
-            )
-
-        if info_count:
-            explanation_lines.append(
-                "Info items document deliberate transformations such as USD conversion."
-            )
-
-        explanation_lines.append(
-            "No row is silently fixed or deleted. Review decisions are stored before committing."
-        )
+    grouped_by_code = group_issues_by_code(issues)
+    severity_counts = group_issues_by_severity(issues)
+    open_issues = [
+        issue
+        for issue in issues
+        if issue.status == ImportIssue.Status.OPEN
+    ]
+    open_severity_counts = group_issues_by_severity(open_issues)
+    status_counts = Counter(issue.status for issue in issues)
+    row_counts = batch.summary or {}
 
     issue_explanations = [
-        {
-            "code": code,
-            "count": count,
-            "explanation": explain_issue_code(code, count),
-            "samples": samples.get(code, []),
-        }
-        for code, count in sorted(by_code.items())
+        explain_issue_code(code, issue_group)
+        for code, issue_group in sorted(grouped_by_code.items())
     ]
 
     return {
         "batch_id": batch.id,
         "filename": batch.original_filename,
+        "display_filename": humanize_filename(batch.original_filename),
+        "batch_status": batch.status,
         "total_rows": batch.total_rows,
-        "issue_count": len(issues),
-        "severity_counts": {
-            "info": by_severity.get(ImportIssue.Severity.INFO, 0),
-            "warning": by_severity.get(ImportIssue.Severity.WARNING, 0),
-            "error": by_severity.get(ImportIssue.Severity.ERROR, 0),
+        "total_issues": len(issues),
+        "severity_counts": severity_counts,
+        "open_issue_count": len(open_issues),
+        "open_severity_counts": open_severity_counts,
+        "issue_status_counts": {
+            "open": status_counts.get(ImportIssue.Status.OPEN, 0),
+            "approved": status_counts.get(ImportIssue.Status.APPROVED, 0),
+            "resolved": status_counts.get(ImportIssue.Status.RESOLVED, 0),
+            "rejected": status_counts.get(ImportIssue.Status.REJECTED, 0),
         },
-        "summary": " ".join(explanation_lines),
+        "row_counts": {
+            "valid_rows": row_counts.get("valid_rows", 0),
+            "needs_review_rows": row_counts.get("needs_review_rows", 0),
+            "blocked_rows": row_counts.get("blocked_rows", 0),
+            "committed_rows": row_counts.get("committed_rows", 0),
+            "skipped_rows": row_counts.get("skipped_rows", 0),
+        },
+        "summary": build_summary_sentence(
+            batch=batch,
+            severity_counts=severity_counts,
+            open_severity_counts=open_severity_counts,
+            total_issues=len(issues),
+        ),
+        "commit_guidance": build_commit_guidance(open_severity_counts, row_counts),
         "issue_explanations": issue_explanations,
     }

@@ -149,7 +149,7 @@ export function AiReviewPage() {
         />
       </div>
 
-      <div className="mt-8 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="mt-8 grid items-start gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-6">
           <div className="glass-panel ring-gradient rounded-3xl p-6">
             <div className="flex items-center gap-3">
@@ -234,7 +234,7 @@ export function AiReviewPage() {
             </h2>
           </div>
 
-          <div className="mt-6 max-h-[840px] space-y-4 overflow-y-auto pr-1">
+          <div className="mt-4 space-y-4">
             {report.issue_explanations.map((issue) => {
               const Icon = getSeverityIcon(issue.severity);
 

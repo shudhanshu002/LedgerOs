@@ -1,4 +1,9 @@
 import axios from "axios";
+import {
+  clearAuthTokens,
+  getAccessToken,
+  saveAuthTokens,
+} from "./storage";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -8,7 +13,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const accessToken = localStorage.getItem("ledgeros_access_token");
+  const accessToken = getAccessToken();
 
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
@@ -18,15 +23,11 @@ api.interceptors.request.use((config) => {
 });
 
 export function saveTokens(access: string, refresh: string) {
-  localStorage.setItem("ledgeros_access_token", access);
-  localStorage.setItem("ledgeros_refresh_token", refresh);
+  saveAuthTokens(access, refresh);
 }
 
 export function clearTokens() {
-  localStorage.removeItem("ledgeros_access_token");
-  localStorage.removeItem("ledgeros_refresh_token");
+  clearAuthTokens();
 }
 
-export function getAccessToken() {
-  return localStorage.getItem("ledgeros_access_token");
-}
+export { getAccessToken };

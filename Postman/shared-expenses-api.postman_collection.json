@@ -1,0 +1,451 @@
+{
+  "info": {
+    "name": "Shared Expenses API",
+    "_postman_id": "e20b75c8-1b10-4e9e-96a1-shared-expenses-api",
+    "description": "Postman collection for Shared Expenses backend: auth, groups, CSV import, AI explanation, commit, and balances.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "group_id",
+      "value": "1"
+    },
+    {
+      "key": "batch_id",
+      "value": "1"
+    },
+    {
+      "key": "issue_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth - Login as Aisha",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/auth/token/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "token",
+            ""
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"Aisha\",\n  \"password\": \"Password@123\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('access_token', data.access);",
+              "pm.collectionVariables.set('refresh_token', data.refresh);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Refresh Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/auth/token/refresh/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "token",
+            "refresh",
+            ""
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('access_token', data.access);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth - Me",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/auth/me/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "me",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Groups - List My Groups",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/groups/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "groups",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Imports - Upload CSV",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/imports/upload/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "imports",
+            "upload",
+            ""
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "group_id",
+              "value": "{{group_id}}",
+              "type": "text"
+            },
+            {
+              "key": "file",
+              "type": "file",
+              "src": []
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const data = pm.response.json();",
+              "pm.collectionVariables.set('batch_id', data.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Imports - Batch Summary",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/imports/{{batch_id}}/summary/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "imports",
+            "{{batch_id}}",
+            "summary",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Imports - Batch Issues",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/imports/{{batch_id}}/issues/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "imports",
+            "{{batch_id}}",
+            "issues",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "AI - Explain Import Anomalies",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/ai/imports/{{batch_id}}/explain/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ai",
+            "imports",
+            "{{batch_id}}",
+            "explain",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Imports - Review Issue Decision",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/imports/issues/{{issue_id}}/decision/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "imports",
+            "issues",
+            "{{issue_id}}",
+            "decision",
+            ""
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"APPROVE\",\n  \"note\": \"Reviewed and approved during demo\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Imports - Commit Batch",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/imports/{{batch_id}}/commit/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "imports",
+            "{{batch_id}}",
+            "commit",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Expenses - Group Balances",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/expenses/groups/{{group_id}}/balances/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "expenses",
+            "groups",
+            "{{group_id}}",
+            "balances",
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "Audit - List Logs",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/audit/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "audit",
+            ""
+          ]
+        }
+      }
+    }
+  ]
+}

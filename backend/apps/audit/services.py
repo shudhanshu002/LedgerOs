@@ -3,6 +3,7 @@ from typing import Any
 from django.contrib.auth.models import AnonymousUser, User
 
 from apps.audit.models import AuditLog
+from apps.imports.filename_display import humanize_filename
 
 
 def create_audit_log(
@@ -64,6 +65,7 @@ def audit_import_upload(
         entity_id=batch.id,
         after={
             "filename": batch.original_filename,
+            "display_filename": humanize_filename(batch.original_filename),
             "total_rows": batch.total_rows,
             "status": batch.status,
             "summary": batch.summary,

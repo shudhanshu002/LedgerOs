@@ -1,8 +1,11 @@
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from apps.audit.models import AuditLog
 from apps.audit.serializers import AuditLogSerializer
+from apps.groups.models import GroupMembership
+from apps.imports.models import ImportBatch, ImportIssue
 
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
@@ -26,17 +29,36 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """
-        Users can only see audit logs related to entities they can access.
-
-        For now we return logs created by the current user.
-
-        Later, we can expand this to group-level audit visibility:
-        group admins see all audit logs for their group.
+        Users can see audit evidence for groups they can access, even if
+        another admin performed the action. This is important for live review:
+        Anita/Aisha should both be able to inspect how a group import changed.
         """
+
+        group_ids = list(
+            GroupMembership.objects.filter(user=self.request.user)
+            .values_list("group_id", flat=True)
+            .distinct()
+        )
+
+        batch_ids = list(
+            ImportBatch.objects.filter(group_id__in=group_ids)
+            .values_list("id", flat=True)
+        )
+
+        issue_ids = list(
+            ImportIssue.objects.filter(batch_id__in=batch_ids)
+            .values_list("id", flat=True)
+        )
 
         return (
             AuditLog.objects
-            .filter(actor=self.request.user)
+            .filter(
+                Q(actor=self.request.user)
+                | Q(metadata__group_id__in=group_ids)
+                | Q(entity_type="ImportBatch", entity_id__in=[str(id) for id in batch_ids])
+                | Q(entity_type="ImportIssue", entity_id__in=[str(id) for id in issue_ids])
+            )
             .select_related("actor")
+            .distinct()
             .order_by("-created_at")
         )

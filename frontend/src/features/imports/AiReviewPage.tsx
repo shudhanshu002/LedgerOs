@@ -9,10 +9,14 @@ import {
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
-import { api } from "../../lib/api";
-import { AiImportExplanation, AiIssueExplanation } from "../../types/api";
+import { usePageTitle } from "../../hooks/usePageTitle";
+import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getGroups } from "../groups/groupsApi";
+import { getImportAiExplanation, getImportBatches } from "./importsApi";
+import type { AiImportExplanation, AiIssueExplanation } from "./types";
 
 function getSeverityTone(severity: AiIssueExplanation["severity"]) {
   if (severity === "ERROR") return "red";
@@ -27,6 +31,8 @@ function getSeverityIcon(severity: AiIssueExplanation["severity"]) {
 }
 
 export function AiReviewPage() {
+  usePageTitle("AI Review");
+
   const [report, setReport] = useState<AiImportExplanation | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -34,11 +40,20 @@ export function AiReviewPage() {
     setLoading(true);
 
     try {
-      const response = await api.get<AiImportExplanation>(
-        "/api/ai/imports/1/explain/",
-      );
+      const [groups, batches] = await Promise.all([
+        getGroups(),
+        getImportBatches(),
+      ]);
+      const activeGroupId = resolveActiveGroupId(groups);
+      const batch = batches.find((item) => item.group === activeGroupId);
 
-      setReport(response.data);
+      if (!batch) {
+        setReport(null);
+        return;
+      }
+
+      const data = await getImportAiExplanation(batch.id);
+      setReport(data);
     } finally {
       setLoading(false);
     }
@@ -51,9 +66,12 @@ export function AiReviewPage() {
   if (loading) {
     return (
       <section className="py-8">
-        <div className="glass-panel rounded-3xl p-8 text-ledger-muted">
-          Generating AI review report...
-        </div>
+        <LoadingState
+          title="Loading AI review"
+          description="Fetching the latest import batch and deterministic anomaly explanations."
+          icon={BrainCircuit}
+          tone="violet"
+        />
       </section>
     );
   }
@@ -101,7 +119,7 @@ export function AiReviewPage() {
         <MetricCard
           label="Total rows"
           value={report.total_rows}
-          helper={report.filename}
+          helper={report.display_filename ?? report.filename}
           icon={FileWarning}
           tone="blue"
         />
@@ -109,23 +127,23 @@ export function AiReviewPage() {
         <MetricCard
           label="Total issues"
           value={report.total_issues}
-          helper="Detected by backend import policies"
+          helper={`${report.open_issue_count} still open`}
           icon={BrainCircuit}
           tone="violet"
         />
 
         <MetricCard
-          label="Error issues"
-          value={report.severity_counts.error}
-          helper="Must be fixed or resolved before safe commit"
+          label="Open errors"
+          value={report.open_severity_counts.error}
+          helper={`${report.severity_counts.error} detected total`}
           icon={ShieldAlert}
           tone="red"
         />
 
         <MetricCard
-          label="Warning issues"
-          value={report.severity_counts.warning}
-          helper="Need review before affecting balances"
+          label="Open warnings"
+          value={report.open_severity_counts.warning}
+          helper={`${report.severity_counts.warning} detected total`}
           icon={AlertTriangle}
           tone="amber"
         />
@@ -144,7 +162,7 @@ export function AiReviewPage() {
                   Executive import summary
                 </h2>
                 <p className="text-sm text-ledger-muted">
-                  Batch #{report.batch_id} · {report.batch_status}
+                  Batch #{report.batch_id} - {report.batch_status}
                 </p>
               </div>
             </div>
@@ -185,6 +203,27 @@ export function AiReviewPage() {
               explainable anomaly guidance.
             </p>
           </div>
+
+          <div className="glass-panel rounded-3xl p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-ledger-muted">
+              Current row state
+            </p>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <StatusBadge tone="green">
+                {`Committed ${report.row_counts.committed_rows}`}
+              </StatusBadge>
+              <StatusBadge tone="green">
+                {`Valid ${report.row_counts.valid_rows}`}
+              </StatusBadge>
+              <StatusBadge tone="amber">
+                {`Review ${report.row_counts.needs_review_rows}`}
+              </StatusBadge>
+              <StatusBadge tone="red">
+                {`Blocked ${report.row_counts.blocked_rows}`}
+              </StatusBadge>
+            </div>
+          </div>
         </div>
 
         <div className="glass-panel rounded-3xl p-6">
@@ -218,6 +257,9 @@ export function AiReviewPage() {
                         <p className="mt-1 text-sm text-ledger-muted">
                           {issue.count} occurrence
                           {issue.count === 1 ? "" : "s"}
+                          {issue.open_count > 0
+                            ? ` - ${issue.open_count} open`
+                            : " - none open"}
                         </p>
                       </div>
                     </div>
@@ -267,7 +309,7 @@ export function AiReviewPage() {
                             className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
                           >
                             <p className="text-sm text-white">
-                              Row {sample.row_number ?? "N/A"}
+                              Row {sample.row_number ?? "N/A"} - {sample.status}
                             </p>
 
                             <p className="mt-1 text-xs leading-5 text-ledger-muted">

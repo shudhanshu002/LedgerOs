@@ -17,6 +17,7 @@ from apps.imports.serializers import (
     ImportUploadSerializer,
 )
 from apps.imports.services.anomaly_detector import refresh_batch_summary
+from apps.imports.services.commit_import import CommitImportError, commit_import_batch
 from apps.imports.services.parser import ImportParserError, create_import_batch_from_csv
 
 
@@ -56,6 +57,7 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
     - view detailed import report
     - upload CSV
     - list issues for one batch
+    - commit reviewed import batch
     """
 
     permission_classes = [IsAuthenticated]
@@ -155,6 +157,9 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
     def summary(self, request, pk=None):
         """
         Lightweight summary for import report cards.
+
+        Endpoint:
+        GET /api/imports/{batch_id}/summary/
         """
 
         batch = self.get_object()
@@ -166,6 +171,52 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
                 "status": batch.status,
                 "summary": batch.summary,
             },
+            status=status.HTTP_200_OK,
+        )
+
+    @transaction.atomic
+    @action(detail=True, methods=["post"], url_path="commit")
+    def commit(self, request, pk=None):
+        """
+        Commits a reviewed import batch into real expenses/settlements.
+
+        Endpoint:
+        POST /api/imports/{batch_id}/commit/
+
+        Important:
+        This is the point where CSV rows start affecting balances.
+
+        Uploading CSV only creates:
+        - ImportBatch
+        - ImportRow
+        - ImportIssue
+
+        Committing creates:
+        - Expense
+        - ExpenseSplit
+        - Settlement
+        """
+
+        batch = self.get_object()
+
+        if not user_is_group_admin(request.user, batch.group):
+            raise PermissionDenied("Only group admins can commit imports.")
+
+        try:
+            result = commit_import_batch(
+                batch=batch,
+                committed_by=request.user,
+            )
+        except CommitImportError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            result,
             status=status.HTTP_200_OK,
         )
 

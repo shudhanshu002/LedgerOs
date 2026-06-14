@@ -8,6 +8,13 @@ from apps.groups.models import Group, GroupMembership
 
 
 DEMO_PASSWORD = "Password@123"
+GROUP_NAME = "Flatmates Ledger 2026"
+LEGACY_GROUP_NAME = "Goa Trip 2026"
+GROUP_DESCRIPTION = (
+    "Shared flatmate expenses from Feb-Apr 2026, including rent, groceries, "
+    "utilities, Goa trip expenses, move-in/move-out changes, settlements, "
+    "and CSV cleanup."
+)
 
 
 class Command(BaseCommand):
@@ -63,6 +70,12 @@ class Command(BaseCommand):
 
             user.email = f"{username.lower()}@example.com"
             user.first_name = username
+            user.last_name = ""
+            user.is_active = True
+
+            if username == "Aisha":
+                user.is_staff = True
+
             user.set_password(DEMO_PASSWORD)
             user.save()
 
@@ -77,25 +90,37 @@ class Command(BaseCommand):
 
     def create_demo_group(self, created_by: User) -> Group:
         """
-        Creates one group for the assignment demo.
+        Creates or updates one group for the assignment demo.
+
+        Older local/deployed databases may already have the original seed name
+        "Goa Trip 2026". Reuse and rename that group instead of creating a
+        second demo workspace.
         """
 
-        group, created = Group.objects.get_or_create(
-            name="Goa Trip 2026",
-            defaults={
-                "description": "Demo group for Splitwise-style CSV import assignment.",
-                "created_by": created_by,
-            },
+        group = (
+            Group.objects.filter(name=GROUP_NAME).first()
+            or Group.objects.filter(name=LEGACY_GROUP_NAME).first()
         )
 
-        group.description = "Demo group for Splitwise-style CSV import assignment."
+        created = False
+
+        if group is None:
+            group = Group.objects.create(
+                name=GROUP_NAME,
+                description=GROUP_DESCRIPTION,
+                created_by=created_by,
+            )
+            created = True
+
+        group.name = GROUP_NAME
+        group.description = GROUP_DESCRIPTION
         group.created_by = created_by
         group.save()
 
         if created:
-            self.stdout.write("Created group: Goa Trip 2026")
+            self.stdout.write(f"Created group: {GROUP_NAME}")
         else:
-            self.stdout.write("Updated group: Goa Trip 2026")
+            self.stdout.write(f"Updated group: {GROUP_NAME}")
 
         return group
 

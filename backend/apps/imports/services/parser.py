@@ -24,7 +24,9 @@ REQUIRED_HEADERS = {
     "amount",
     "currency",
     "split_type",
-    "participants",
+    "split_with",
+    "split_details",
+    "notes",
 }
 
 
@@ -33,8 +35,8 @@ def normalize_header(header: str) -> str:
     Normalizes CSV headers.
 
     Examples:
-    "Paid By"    -> "paid_by"
-    "Split Type" -> "split_type"
+    "Paid By"       -> "paid_by"
+    "Split Details" -> "split_details"
     """
 
     return (
@@ -72,13 +74,12 @@ def normalize_raw_row_keys(raw_row: dict) -> dict:
 
 def validate_headers(fieldnames: list[str]):
     """
-    Checks whether the uploaded CSV has enough columns to parse.
+    Validates the official assignment CSV format.
 
-    Important:
-    We do not require exact official CSV headers yet because the official file
-    is not downloadable right now.
+    Real CSV headers:
 
-    But we still require core meaning columns.
+    date, description, paid_by, amount, currency,
+    split_type, split_with, split_details, notes
     """
 
     if not fieldnames:
@@ -93,7 +94,8 @@ def validate_headers(fieldnames: list[str]):
 
     if missing_headers:
         raise ImportParserError(
-            f"CSV is missing required headers: {', '.join(sorted(missing_headers))}"
+            "CSV is missing required headers: "
+            + ", ".join(sorted(missing_headers))
         )
 
 
@@ -105,7 +107,7 @@ def read_uploaded_csv(file_obj) -> tuple[list[str], list[dict]]:
     - headers
     - rows as dictionaries
 
-    This function does not create DB records.
+    This function does not create database records.
     """
 
     try:
@@ -143,7 +145,7 @@ def create_import_batch_from_csv(
     Flow:
     1. Read uploaded CSV
     2. Create ImportBatch
-    3. Create ImportRow for every row
+    3. Create ImportRow for every CSV row
     4. Normalize row
     5. Detect row-level anomalies
     6. Detect batch-level anomalies

@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from apps.expenses.services.money import (
@@ -14,13 +15,13 @@ class SplitCalculationError(ValueError):
 
 def normalize_split_type(split_type: str) -> str:
     """
-    Normalizes split type from CSV/API.
+    Normalizes split type from API/CSV.
 
-    Supported:
-    - EQUAL
-    - EXACT
-    - PERCENTAGE
-    - SHARE
+    Real CSV values:
+    - equal
+    - unequal
+    - percentage
+    - share
     """
 
     normalized = (split_type or "").strip().upper()
@@ -28,9 +29,13 @@ def normalize_split_type(split_type: str) -> str:
     aliases = {
         "EQUALLY": "EQUAL",
         "EQUAL_SPLIT": "EQUAL",
+
+        "UNEQUAL": "EXACT",
         "EXACT_AMOUNT": "EXACT",
+
         "PERCENT": "PERCENTAGE",
         "PERCENTAGE_SPLIT": "PERCENTAGE",
+
         "SHARES": "SHARE",
         "BY_SHARE": "SHARE",
     }
@@ -38,22 +43,42 @@ def normalize_split_type(split_type: str) -> str:
     return aliases.get(normalized, normalized)
 
 
+def clean_split_number(value: str) -> str:
+    """
+    Cleans split number values.
+
+    Examples:
+    "30%"    -> "30"
+    "1,200"  -> "1200"
+    " 700 "  -> "700"
+    """
+
+    return (
+        str(value)
+        .strip()
+        .replace("%", "")
+        .replace("₹", "")
+        .replace("$", "")
+        .replace(",", "")
+    )
+
+
 def parse_named_values(raw_value: str) -> dict[str, Decimal]:
     """
-    Parses CSV split value strings.
+    Parses real CSV split_details.
 
-    Supported examples:
+    Supported real examples:
 
-    Aisha:500,Rohan:500,Priya:700
-    Aisha:20;Rohan:30;Priya:50
-    Aisha:1|Rohan:2|Priya:1
+    Rohan 700; Priya 400; Meera 400
 
-    Returns:
+    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
 
-    {
-      "Aisha": Decimal("500"),
-      "Rohan": Decimal("500")
-    }
+    Aisha 1; Rohan 2; Priya 1; Dev 2
+
+    Also supports safer formats:
+
+    Aisha:700,Rohan:400
+    Aisha=700;Rohan=400
     """
 
     if not raw_value:
@@ -61,26 +86,48 @@ def parse_named_values(raw_value: str) -> dict[str, Decimal]:
 
     normalized = (
         str(raw_value)
-        .replace("|", ",")
-        .replace(";", ",")
+        .replace("|", ";")
+        .replace(",", ";")
     )
 
     result = {}
 
-    for part in normalized.split(","):
+    for part in normalized.split(";"):
         item = part.strip()
 
         if not item:
             continue
 
-        if ":" not in item:
-            raise SplitCalculationError(
-                f"Invalid split value format: {item}. Expected Name:Value."
+        # Supports:
+        # Aisha:700
+        # Aisha=700
+        if ":" in item:
+            name, value = item.split(":", 1)
+
+        elif "=" in item:
+            name, value = item.split("=", 1)
+
+        else:
+            # Supports:
+            # Aisha 700
+            # Priya 30%
+            # Dev 2
+            match = re.match(
+                r"^(?P<name>.+?)\s+(?P<value>-?\d+(?:\.\d+)?%?)$",
+                item,
             )
 
-        name, value = item.split(":", 1)
+            if not match:
+                raise SplitCalculationError(
+                    f"Invalid split value format: {item}. "
+                    "Expected examples like 'Aisha 700', 'Aisha 30%', or 'Aisha:700'."
+                )
+
+            name = match.group("name")
+            value = match.group("value")
+
         name = name.strip()
-        value = value.strip()
+        value = clean_split_number(value)
 
         if not name:
             raise SplitCalculationError("Split participant name is empty.")
@@ -103,9 +150,6 @@ def calculate_equal_split(
     Example:
     ₹100 split among 3 people:
 
-    total_paise = 10000
-
-    Result:
     {
       "Aisha": 3334,
       "Rohan": 3333,
@@ -113,7 +157,8 @@ def calculate_equal_split(
     }
 
     Remainder policy:
-    Extra paise are assigned to earlier participants.
+    Extra paise go to earlier participants.
+    This is deterministic and documented.
     """
 
     if not participants:
@@ -132,21 +177,21 @@ def calculate_exact_split(
     split_values_raw: str,
 ) -> dict[str, int]:
     """
-    Exact split.
+    Unequal/exact split.
 
-    Example:
-    raw:
-    Aisha:500,Rohan:700
+    Real CSV example:
+    Rohan 700; Priya 400; Meera 400
 
-    Means:
-    Aisha owes ₹500
+    Meaning:
     Rohan owes ₹700
+    Priya owes ₹400
+    Meera owes ₹400
     """
 
     named_values = parse_named_values(split_values_raw)
 
     if not named_values:
-        raise SplitCalculationError("Exact split requires split values.")
+        raise SplitCalculationError("Exact split requires split_details.")
 
     result = {
         name: rupees_to_paise(value)
@@ -157,7 +202,8 @@ def calculate_exact_split(
 
     if split_total != total_paise:
         raise SplitCalculationError(
-            f"Exact split total {split_total} paise does not match expense total {total_paise} paise."
+            f"Exact split total {split_total} paise does not match "
+            f"expense total {total_paise} paise."
         )
 
     return result
@@ -170,19 +216,17 @@ def calculate_percentage_split(
     """
     Percentage split.
 
-    Example:
-    Aisha:50,Rohan:25,Priya:25
+    Real CSV example:
+    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
 
-    Means:
-    Aisha owes 50% of total.
-    Rohan owes 25%.
-    Priya owes 25%.
+    Total must be exactly 100.
+    If it is 110, we block it as anomaly.
     """
 
     named_values = parse_named_values(split_values_raw)
 
     if not named_values:
-        raise SplitCalculationError("Percentage split requires split values.")
+        raise SplitCalculationError("Percentage split requires split_details.")
 
     percentage_total = sum(named_values.values())
 
@@ -228,23 +272,23 @@ def calculate_share_split(
     split_values_raw: str,
 ) -> dict[str, int]:
     """
-    Share-based split.
+    Share split.
 
-    Example:
-    Aisha:1,Rohan:2,Priya:1
+    Real CSV example:
+    Aisha 2; Rohan 1; Priya 1
 
     Total shares = 4
 
-    If expense is ₹400:
-    Aisha owes ₹100
-    Rohan owes ₹200
-    Priya owes ₹100
+    If expense is ₹48000:
+    Aisha owes ₹24000
+    Rohan owes ₹12000
+    Priya owes ₹12000
     """
 
     named_values = parse_named_values(split_values_raw)
 
     if not named_values:
-        raise SplitCalculationError("Share split requires split values.")
+        raise SplitCalculationError("Share split requires split_details.")
 
     total_shares = sum(named_values.values())
 

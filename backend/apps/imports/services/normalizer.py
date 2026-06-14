@@ -7,6 +7,7 @@ NAME_ALIASES = {
     "aisha": "Aisha",
     "rohan": "Rohan",
     "priya": "Priya",
+    "priya s": "Priya",
     "meera": "Meera",
     "dev": "Dev",
     "sam": "Sam",
@@ -14,12 +15,12 @@ NAME_ALIASES = {
 
 
 SUPPORTED_DATE_FORMATS = [
-    "%Y-%m-%d",      # 2024-03-12
-    "%d-%m-%Y",      # 12-03-2024
-    "%d/%m/%Y",      # 12/03/2024
-    "%m/%d/%Y",      # 03/12/2024
-    "%d %b %Y",      # 12 Mar 2024
-    "%d %B %Y",      # 12 March 2024
+    "%Y-%m-%d",      # 2026-02-01
+    "%d-%m-%Y",      # 01-03-2026
+    "%d/%m/%Y",      # 01/03/2026
+    "%m/%d/%Y",      # 03/01/2026
+    "%d %b %Y",      # 14 Mar 2026
+    "%d %B %Y",      # 14 March 2026
 ]
 
 
@@ -35,7 +36,12 @@ def clean_text(value) -> str:
     if value is None:
         return ""
 
-    return " ".join(str(value).strip().split())
+    text = str(value).strip()
+
+    if text.lower() in ["nan", "none", "null"]:
+        return ""
+
+    return " ".join(text.split())
 
 
 def normalize_person_name(value) -> str:
@@ -44,11 +50,12 @@ def normalize_person_name(value) -> str:
 
     Examples:
     " priya " -> "Priya"
-    "ROHAN"   -> "Rohan"
+    "Priya S" -> "Priya"
+    "rohan"   -> "Rohan"
 
     Unknown names are preserved so anomaly detector can flag them.
     Example:
-    "Kabir" remains "Kabir"
+    "Dev's friend Kabir" remains "Dev's friend Kabir"
     """
 
     cleaned = clean_text(value)
@@ -65,13 +72,17 @@ def normalize_people_list(value) -> list[str]:
     """
     Normalizes participant list.
 
-    Supported CSV styles:
-    Aisha,Rohan,Priya
-    Aisha; Rohan; Priya
-    Aisha | Rohan | Priya
+    Real CSV uses split_with:
+
+    Aisha;Rohan;Priya;Meera
+
+    Supported separators:
+    - semicolon
+    - comma
+    - pipe
 
     Returns:
-    ["Aisha", "Rohan", "Priya"]
+    ["Aisha", "Rohan", "Priya", "Meera"]
     """
 
     if not value:
@@ -79,13 +90,13 @@ def normalize_people_list(value) -> list[str]:
 
     raw = (
         str(value)
-        .replace("|", ",")
-        .replace(";", ",")
+        .replace("|", ";")
+        .replace(",", ";")
     )
 
     people = []
 
-    for item in raw.split(","):
+    for item in raw.split(";"):
         name = normalize_person_name(item)
 
         if name:
@@ -100,10 +111,12 @@ def parse_date_or_none(value):
 
     Returns:
     - date object if valid
-    - None if invalid
+    - None if invalid or ambiguous
 
-    We do not guess silently.
-    If parsing fails, anomaly detector will create INVALID_DATE issue.
+    Important:
+    The real CSV has a row like "Mar 14".
+    We intentionally do not guess the year.
+    That row should become an INVALID_DATE anomaly.
     """
 
     text = clean_text(value)
@@ -124,16 +137,16 @@ def normalize_currency(value) -> str:
     """
     Normalizes currency values.
 
-    Examples:
-    "inr" -> "INR"
-    "usd" -> "USD"
-    "$"   -> "USD"
-    "₹"   -> "INR"
+    Real CSV has some blank currency values.
+
+    Policy:
+    Blank currency becomes empty string, not INR.
+    Then anomaly detector can decide whether to block or default.
     """
 
     cleaned = clean_text(value).upper()
 
-    if cleaned in ["", "RUPEE", "RUPEES", "INR", "₹", "RS", "RS."]:
+    if cleaned in ["RUPEE", "RUPEES", "INR", "₹", "RS", "RS."]:
         return "INR"
 
     if cleaned in ["USD", "US DOLLAR", "US DOLLARS", "$", "DOLLAR", "DOLLARS"]:
@@ -146,6 +159,13 @@ def normalize_split_type(value) -> str:
     """
     Normalizes split type from CSV.
 
+    Real CSV has:
+    - equal
+    - unequal
+    - percentage
+    - share
+    - blank for settlement row
+
     Supported output:
     EQUAL
     EXACT
@@ -156,13 +176,21 @@ def normalize_split_type(value) -> str:
     cleaned = clean_text(value).upper()
 
     aliases = {
-        "": "EQUAL",
+        "": "",
+        "EQUAL": "EQUAL",
         "EQUALLY": "EQUAL",
         "EQUAL_SPLIT": "EQUAL",
+
+        "UNEQUAL": "EXACT",
+        "EXACT": "EXACT",
         "EXACT_AMOUNT": "EXACT",
         "EXACTS": "EXACT",
+
         "PERCENT": "PERCENTAGE",
+        "PERCENTAGE": "PERCENTAGE",
         "PERCENTAGE_SPLIT": "PERCENTAGE",
+
+        "SHARE": "SHARE",
         "SHARES": "SHARE",
         "BY_SHARE": "SHARE",
     }
@@ -174,12 +202,11 @@ def get_first_available(raw: dict, possible_keys: list[str]):
     """
     CSV headers may vary slightly.
 
-    This lets us support:
-    - paid_by
-    - payer
-    - Paid By
+    Real CSV uses:
+    - split_with instead of participants
+    - split_details instead of split_values
 
-    without editing the CSV manually.
+    This lets us support both without editing CSV manually.
     """
 
     for key in possible_keys:
@@ -187,6 +214,21 @@ def get_first_available(raw: dict, possible_keys: list[str]):
             return raw.get(key)
 
     return ""
+
+
+def normalize_raw_split_details(value) -> str:
+    """
+    Normalizes split details but does not fully parse them here.
+
+    Real CSV examples:
+    Rohan 700; Priya 400; Meera 400
+    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
+    Aisha 1; Rohan 2; Priya 1; Dev 2
+
+    Full parsing happens in split_calculator.py.
+    """
+
+    return clean_text(value)
 
 
 def normalize_row(raw: dict) -> dict:
@@ -201,17 +243,47 @@ def normalize_row(raw: dict) -> dict:
     """
 
     date_raw = clean_text(
-        get_first_available(raw, ["date", "Date", "expense_date", "Expense Date"])
+        get_first_available(
+            raw,
+            ["date", "Date", "expense_date", "Expense Date"],
+        )
     )
 
     parsed_date = parse_date_or_none(date_raw)
+
+    split_with_raw = get_first_available(
+        raw,
+        [
+            "split_with",
+            "Split With",
+            "participants",
+            "Participants",
+            "members",
+            "Members",
+        ],
+    )
+
+    split_details_raw = get_first_available(
+        raw,
+        [
+            "split_details",
+            "Split Details",
+            "split_values",
+            "Split Values",
+            "shares",
+            "Shares",
+        ],
+    )
 
     normalized = {
         "date_raw": date_raw,
         "date": parsed_date.isoformat() if parsed_date else None,
 
         "description": clean_text(
-            get_first_available(raw, ["description", "Description", "title", "Title"])
+            get_first_available(
+                raw,
+                ["description", "Description", "title", "Title"],
+            )
         ),
 
         "category": clean_text(
@@ -219,7 +291,10 @@ def normalize_row(raw: dict) -> dict:
         ),
 
         "payer": normalize_person_name(
-            get_first_available(raw, ["paid_by", "payer", "Paid By", "Payer"])
+            get_first_available(
+                raw,
+                ["paid_by", "payer", "Paid By", "Payer"],
+            )
         ),
 
         "amount_raw": clean_text(
@@ -231,16 +306,15 @@ def normalize_row(raw: dict) -> dict:
         ),
 
         "split_type": normalize_split_type(
-            get_first_available(raw, ["split_type", "Split Type", "split", "Split"])
+            get_first_available(
+                raw,
+                ["split_type", "Split Type", "split", "Split"],
+            )
         ),
 
-        "participants": normalize_people_list(
-            get_first_available(raw, ["participants", "Participants", "members", "Members"])
-        ),
+        "participants": normalize_people_list(split_with_raw),
 
-        "split_values_raw": clean_text(
-            get_first_available(raw, ["split_values", "Split Values", "shares", "Shares"])
-        ),
+        "split_values_raw": normalize_raw_split_details(split_details_raw),
 
         "notes": clean_text(
             get_first_available(raw, ["notes", "Notes", "note", "Note"])
@@ -259,7 +333,7 @@ def normalized_row_hash(normalized: dict) -> str:
     Reason:
     These should be treated as duplicate-like:
 
-    " Priya " and "priya"
+    " priya " and "Priya"
     "inr" and "INR"
     """
 

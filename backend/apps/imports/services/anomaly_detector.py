@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -16,18 +17,23 @@ from apps.imports.models import ImportBatch, ImportIssue, ImportRow
 
 ISSUE_POLICIES = {
     "INVALID_DATE": "Block the row. The importer does not guess dates silently.",
+    "AMBIGUOUS_DATE": "Flag the row for review because both DD/MM/YYYY and MM/DD/YYYY are possible.",
     "MISSING_PAYER": "Block the row until the payer is selected.",
     "UNKNOWN_MEMBER": "Block the row until the person is mapped to an existing member or created.",
     "INVALID_AMOUNT": "Block the row until the amount is corrected.",
+    "AMOUNT_PRECISION": "Flag amount with more than 2 decimal places. User must approve rounding.",
     "NEGATIVE_AMOUNT": "Flag for review. Treat as refund only after user approval.",
     "ZERO_AMOUNT": "Block the row. Zero amount expenses do not affect balances.",
+    "MISSING_CURRENCY": "Block the row until currency is provided.",
     "UNSUPPORTED_CURRENCY": "Block the row until currency is mapped to a supported currency.",
     "USD_CONVERTED": "Convert USD to INR using the documented USD_TO_INR_RATE policy.",
     "SETTLEMENT_AS_EXPENSE": "Do not import as expense. Import as settlement after approval.",
     "DUPLICATE_EXACT": "Do not silently delete. User must approve skip or keep.",
     "DUPLICATE_CONFLICT": "Do not choose winner automatically. User must choose the correct row.",
+    "POSSIBLE_DUPLICATE": "Flag similar-looking rows for review. The app does not delete either row automatically.",
     "INACTIVE_MEMBER": "Flag participant/payer if they were not active on the expense date.",
     "INVALID_SPLIT_TYPE": "Block row until split type is supported or mapped.",
+    "SPLIT_DETAILS_WITH_EQUAL": "Flag because split_type says equal but split_details is present.",
     "INVALID_PERCENTAGE_TOTAL": "Block row. Percentage split must total 100.",
     "INVALID_EXACT_TOTAL": "Block row. Exact split values must equal expense amount.",
     "INVALID_SHARE_VALUE": "Block row. Share values must be positive.",
@@ -50,12 +56,6 @@ def create_issue(
     message: str,
     suggested_action: str,
 ) -> ImportIssue:
-    """
-    Creates one ImportIssue.
-
-    Every anomaly should go through this function so policies stay consistent.
-    """
-
     return ImportIssue.objects.create(
         batch=batch,
         row=row,
@@ -86,6 +86,29 @@ def parse_decimal_or_none(value):
         return None
 
 
+def amount_has_more_than_two_decimals(value) -> bool:
+    """
+    Real CSV has amount like 899.995.
+
+    We flag this because money should normally have max 2 decimals.
+    """
+
+    cleaned = (
+        str(value)
+        .strip()
+        .replace("₹", "")
+        .replace("$", "")
+        .replace(",", "")
+    )
+
+    if "." not in cleaned:
+        return False
+
+    decimal_part = cleaned.split(".", 1)[1]
+
+    return len(decimal_part) > 2
+
+
 def parse_iso_date_or_none(value):
     if not value:
         return None
@@ -96,14 +119,38 @@ def parse_iso_date_or_none(value):
         return None
 
 
+def is_ambiguous_numeric_date(date_raw: str) -> bool:
+    """
+    Detects dates like 04/05/2026.
+
+    Could mean:
+    - 4 May 2026
+    - April 5 2026
+
+    Real CSV has a note about this ambiguity.
+    """
+
+    if not date_raw:
+        return False
+
+    match = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s*$", date_raw)
+
+    if not match:
+        return False
+
+    first = int(match.group(1))
+    second = int(match.group(2))
+
+    return 1 <= first <= 12 and 1 <= second <= 12 and first != second
+
+
 def looks_like_settlement(normalized: dict) -> bool:
     """
     Detects rows that are probably settlements/payments, not expenses.
 
-    Example:
-    "Meera paid back Rohan"
-    "UPI settlement"
-    "payment to Rohan"
+    Real CSV examples:
+    - Rohan paid Aisha back
+    - Sam deposit share, paid Aisha his deposit
     """
 
     searchable_text = " ".join(
@@ -126,19 +173,15 @@ def looks_like_settlement(normalized: dict) -> bool:
         "transfer",
         "sent to",
         "gave back",
+        "paid aisha",
+        "deposit share",
+        "paid his deposit",
     ]
 
     return any(keyword in searchable_text for keyword in keywords)
 
 
 def get_known_users_by_name(names: set[str]) -> dict[str, User]:
-    """
-    Returns users by username lowercase.
-
-    Normalizer already turns 'priya' into 'Priya',
-    but this lookup stays case-safe.
-    """
-
     return {
         user.username.lower(): user
         for user in User.objects.filter(username__in=list(names))
@@ -147,10 +190,9 @@ def get_known_users_by_name(names: set[str]) -> dict[str, User]:
 
 def is_user_active_on(group: Group, user: User, expense_date: date) -> bool:
     """
-    Checks if a user was active in the group on a specific date.
-
-    This is the rule that protects Sam from March expenses
-    and Meera from April expenses.
+    This protects:
+    - Sam from expenses before he joined
+    - Meera from expenses after she left
     """
 
     return GroupMembership.objects.filter(
@@ -169,20 +211,24 @@ def validate_split_totals(
     normalized: dict,
     amount_decimal: Decimal,
 ):
-    """
-    Detects split-level anomalies.
-
-    Supported:
-    - percentage total must be 100
-    - exact split total must equal expense total
-    - share values must be positive
-    """
-
     split_type = normalized.get("split_type")
     split_values_raw = normalized.get("split_values_raw", "")
     currency = normalized.get("currency", "INR")
 
     if split_type == "EQUAL":
+        if split_values_raw:
+            create_issue(
+                batch=batch,
+                row=row,
+                code="SPLIT_DETAILS_WITH_EQUAL",
+                severity=ImportIssue.Severity.WARNING,
+                message=(
+                    "split_type is EQUAL but split_details is present. "
+                    "The importer will not silently decide whether to use equal split or split_details."
+                ),
+                suggested_action="Review split type or clear split_details",
+            )
+
         return
 
     try:
@@ -194,7 +240,7 @@ def validate_split_totals(
             code="INVALID_SPLIT_TYPE",
             severity=ImportIssue.Severity.ERROR,
             message=str(exc),
-            suggested_action="Fix split values",
+            suggested_action="Fix split details",
         )
         return
 
@@ -204,8 +250,8 @@ def validate_split_totals(
             row=row,
             code="INVALID_SPLIT_TYPE",
             severity=ImportIssue.Severity.ERROR,
-            message=f"{split_type} split requires split_values.",
-            suggested_action="Add split values",
+            message=f"{split_type} split requires split_details.",
+            suggested_action="Add split details",
         )
         return
 
@@ -289,9 +335,11 @@ def detect_row_anomalies(
     payer_name = normalized.get("payer", "")
     participants = normalized.get("participants", [])
     amount_raw = normalized.get("amount_raw", "")
-    currency = normalized.get("currency", "INR")
-    split_type = normalized.get("split_type", "EQUAL")
+    currency = normalized.get("currency", "")
+    split_type = normalized.get("split_type", "")
     description = normalized.get("description", "")
+    split_values_raw = normalized.get("split_values_raw", "")
+    date_raw = normalized.get("date_raw", "")
 
     if not expense_date:
         create_issue(
@@ -299,8 +347,21 @@ def detect_row_anomalies(
             row=row,
             code="INVALID_DATE",
             severity=ImportIssue.Severity.ERROR,
-            message=f"Could not parse date: {normalized.get('date_raw')}",
+            message=f"Could not parse date: {date_raw}",
             suggested_action="Fix date",
+        )
+
+    elif is_ambiguous_numeric_date(date_raw):
+        create_issue(
+            batch=batch,
+            row=row,
+            code="AMBIGUOUS_DATE",
+            severity=ImportIssue.Severity.WARNING,
+            message=(
+                f"Date '{date_raw}' is ambiguous because both DD/MM/YYYY and "
+                "MM/DD/YYYY are possible."
+            ),
+            suggested_action="Confirm date interpretation",
         )
 
     if not description:
@@ -345,27 +406,51 @@ def detect_row_anomalies(
             suggested_action="Fix amount",
         )
 
-    elif amount_decimal < 0:
+    elif amount_has_more_than_two_decimals(amount_raw):
         create_issue(
             batch=batch,
             row=row,
-            code="NEGATIVE_AMOUNT",
+            code="AMOUNT_PRECISION",
             severity=ImportIssue.Severity.WARNING,
-            message=f"Negative amount detected: {amount_raw}.",
-            suggested_action="Approve as refund or block row",
+            message=(
+                f"Amount '{amount_raw}' has more than 2 decimal places. "
+                "It requires approval before rounding to paise."
+            ),
+            suggested_action="Approve rounding or fix amount",
         )
 
-    elif amount_decimal == 0:
+    if amount_decimal is not None:
+        if amount_decimal < 0:
+            create_issue(
+                batch=batch,
+                row=row,
+                code="NEGATIVE_AMOUNT",
+                severity=ImportIssue.Severity.WARNING,
+                message=f"Negative amount detected: {amount_raw}.",
+                suggested_action="Approve as refund or block row",
+            )
+
+        elif amount_decimal == 0:
+            create_issue(
+                batch=batch,
+                row=row,
+                code="ZERO_AMOUNT",
+                severity=ImportIssue.Severity.ERROR,
+                message="Zero amount detected.",
+                suggested_action="Skip or fix row",
+            )
+
+    if not currency:
         create_issue(
             batch=batch,
             row=row,
-            code="ZERO_AMOUNT",
+            code="MISSING_CURRENCY",
             severity=ImportIssue.Severity.ERROR,
-            message="Zero amount detected.",
-            suggested_action="Skip or fix row",
+            message="Currency is missing.",
+            suggested_action="Select currency",
         )
 
-    if currency not in SUPPORTED_CURRENCIES:
+    elif currency not in SUPPORTED_CURRENCIES:
         create_issue(
             batch=batch,
             row=row,
@@ -385,7 +470,17 @@ def detect_row_anomalies(
             suggested_action="Convert using USD_TO_INR_RATE",
         )
 
-    if split_type not in SUPPORTED_SPLIT_TYPES:
+    if not split_type and not looks_like_settlement(normalized):
+        create_issue(
+            batch=batch,
+            row=row,
+            code="INVALID_SPLIT_TYPE",
+            severity=ImportIssue.Severity.ERROR,
+            message="Split type is missing.",
+            suggested_action="Select split type",
+        )
+
+    elif split_type and split_type not in SUPPORTED_SPLIT_TYPES:
         create_issue(
             batch=batch,
             row=row,
@@ -440,7 +535,12 @@ def detect_row_anomalies(
                     suggested_action="Review participant/payer",
                 )
 
-    if amount_decimal is not None and amount_decimal > 0 and split_type in SUPPORTED_SPLIT_TYPES:
+    if (
+        amount_decimal is not None
+        and amount_decimal > 0
+        and split_type in SUPPORTED_SPLIT_TYPES
+        and currency in SUPPORTED_CURRENCIES
+    ):
         validate_split_totals(
             batch=batch,
             row=row,
@@ -458,24 +558,16 @@ def detect_row_anomalies(
 def detect_batch_anomalies(batch: ImportBatch):
     """
     Detects batch-level anomalies like duplicates and conflicts.
-
-    Runs after all rows are normalized and saved.
     """
 
     rows = list(batch.rows.all())
 
     detect_exact_duplicates(batch, rows)
     detect_duplicate_conflicts(batch, rows)
+    detect_possible_fuzzy_duplicates(batch, rows)
 
 
 def detect_exact_duplicates(batch: ImportBatch, rows: list[ImportRow]):
-    """
-    Detects exact duplicates using row_hash.
-
-    Example:
-    Same groceries row appears twice.
-    """
-
     rows_by_hash = defaultdict(list)
 
     for row in rows:
@@ -501,28 +593,48 @@ def detect_exact_duplicates(batch: ImportBatch, rows: list[ImportRow]):
             )
 
 
+def canonical_description(description: str) -> str:
+    """
+    Normalizes descriptions for duplicate-like detection.
+
+    Real CSV examples:
+    - Dinner at Marina Bites
+    - dinner - marina bites
+
+    Both become close enough to compare.
+    """
+
+    text = str(description or "").lower()
+
+    replacements = {
+        "&": "and",
+        "-": " ",
+        "_": " ",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    stop_words = {"at", "the", "a", "an"}
+
+    words = [
+        word
+        for word in text.split()
+        if word not in stop_words
+    ]
+
+    return " ".join(sorted(words))
+
+
 def duplicate_conflict_signature(row: ImportRow):
-    """
-    Signature for detecting duplicate-like conflicts.
-
-    Same:
-    - date
-    - description
-    - payer
-    - participants
-
-    But different:
-    - amount
-
-    Example:
-    Two people logged same dinner with different amount.
-    """
-
     normalized = row.normalized_data
 
     return (
         normalized.get("date"),
-        normalized.get("description", "").lower(),
+        canonical_description(normalized.get("description", "")),
         normalized.get("payer", "").lower(),
         tuple(sorted(name.lower() for name in normalized.get("participants", []))),
     )
@@ -565,12 +677,91 @@ def detect_duplicate_conflicts(batch: ImportBatch, rows: list[ImportRow]):
             )
 
 
+def token_overlap_score(left: str, right: str) -> float:
+    left_tokens = set(canonical_description(left).split())
+    right_tokens = set(canonical_description(right).split())
+
+    if not left_tokens or not right_tokens:
+        return 0.0
+
+    intersection = left_tokens & right_tokens
+    union = left_tokens | right_tokens
+
+    return len(intersection) / len(union)
+
+
+def detect_possible_fuzzy_duplicates(batch: ImportBatch, rows: list[ImportRow]):
+    """
+    Detects similar rows with different descriptions.
+
+    Real CSV examples:
+    - Dinner at Thalassa
+    - Thalassa dinner
+
+    These should be surfaced, not silently merged.
+    """
+
+    for index, left in enumerate(rows):
+        for right in rows[index + 1:]:
+            left_data = left.normalized_data
+            right_data = right.normalized_data
+
+            if left_data.get("date") != right_data.get("date"):
+                continue
+
+            left_participants = sorted(
+                name.lower()
+                for name in left_data.get("participants", [])
+            )
+            right_participants = sorted(
+                name.lower()
+                for name in right_data.get("participants", [])
+            )
+
+            if left_participants != right_participants:
+                continue
+
+            score = token_overlap_score(
+                left_data.get("description", ""),
+                right_data.get("description", ""),
+            )
+
+            if score < 0.5:
+                continue
+
+            if left_data.get("amount_raw") == right_data.get("amount_raw"):
+                severity = ImportIssue.Severity.WARNING
+                code = "POSSIBLE_DUPLICATE"
+                action = "Review whether one should be skipped"
+            else:
+                severity = ImportIssue.Severity.ERROR
+                code = "DUPLICATE_CONFLICT"
+                action = "Choose correct row manually"
+
+            for row in [left, right]:
+                create_issue(
+                    batch=batch,
+                    row=row,
+                    code=code,
+                    severity=severity,
+                    message=(
+                        f"Row {left.row_number} and row {right.row_number} look similar: "
+                        f"'{left_data.get('description')}' vs "
+                        f"'{right_data.get('description')}'."
+                    ),
+                    suggested_action=action,
+                )
+
+
 def update_row_status_from_issues(row: ImportRow):
     """
     Updates ImportRow.status based on its issues.
     """
 
     issues = row.issues.all()
+
+    if row.status == ImportRow.Status.SKIPPED:
+        return
 
     if issues.filter(severity=ImportIssue.Severity.ERROR).exists():
         row.status = ImportRow.Status.BLOCKED
@@ -587,8 +778,6 @@ def update_row_status_from_issues(row: ImportRow):
 def refresh_batch_summary(batch: ImportBatch):
     """
     Stores summary counts on ImportBatch.
-
-    This makes import report page fast and easy to display.
     """
 
     rows = batch.rows.all()
@@ -599,10 +788,16 @@ def refresh_batch_summary(batch: ImportBatch):
         "valid_rows": rows.filter(status=ImportRow.Status.VALID).count(),
         "needs_review_rows": rows.filter(status=ImportRow.Status.NEEDS_REVIEW).count(),
         "blocked_rows": rows.filter(status=ImportRow.Status.BLOCKED).count(),
+        "skipped_rows": rows.filter(status=ImportRow.Status.SKIPPED).count(),
+        "committed_rows": rows.filter(status=ImportRow.Status.COMMITTED).count(),
         "issues": {
             "info": issues.filter(severity=ImportIssue.Severity.INFO).count(),
             "warning": issues.filter(severity=ImportIssue.Severity.WARNING).count(),
             "error": issues.filter(severity=ImportIssue.Severity.ERROR).count(),
+        },
+        "issue_codes": {
+            code: issues.filter(code=code).count()
+            for code in issues.values_list("code", flat=True).distinct()
         },
     }
 

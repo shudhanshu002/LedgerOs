@@ -19,11 +19,22 @@ class CommitImportError(ValueError):
     pass
 
 
+REVIEW_REQUIRED_CODES = {
+    "NEGATIVE_AMOUNT",
+    "AMOUNT_PRECISION",
+    "AMBIGUOUS_DATE",
+    "USD_CONVERTED",
+    "SETTLEMENT_AS_EXPENSE",
+    "DUPLICATE_EXACT",
+    "POSSIBLE_DUPLICATE",
+    "INACTIVE_MEMBER",
+    "SPLIT_DETAILS_WITH_EQUAL",
+}
+
+
 def get_user_by_name(name: str) -> User:
     """
     Finds a user by username, case-insensitive.
-
-    CSV names are normalized earlier, but this keeps commit safe.
     """
 
     user = User.objects.filter(username__iexact=name).first()
@@ -42,49 +53,49 @@ def user_is_active_on(group, user: User, expense_date) -> bool:
     create invalid financial data.
     """
 
-    return GroupMembership.objects.filter(
-        group=group,
-        user=user,
-        joined_at__lte=expense_date,
-    ).filter(
-        left_at__isnull=True
-    ).exists() or GroupMembership.objects.filter(
-        group=group,
-        user=user,
-        joined_at__lte=expense_date,
-        left_at__gte=expense_date,
-    ).exists()
+    return (
+        GroupMembership.objects.filter(
+            group=group,
+            user=user,
+            joined_at__lte=expense_date,
+        )
+        .filter(left_at__isnull=True)
+        .exists()
+        or GroupMembership.objects.filter(
+            group=group,
+            user=user,
+            joined_at__lte=expense_date,
+            left_at__gte=expense_date,
+        ).exists()
+    )
 
 
 def row_has_unresolved_blocking_issues(row: ImportRow) -> bool:
     """
     A row cannot be committed if it has unresolved ERROR issues.
-
-    WARNING/INFO issues may be committed only after approval.
     """
 
-    return row.issues.filter(
-        severity=ImportIssue.Severity.ERROR,
-    ).exclude(
-        status__in=[
-            ImportIssue.Status.APPROVED,
-            ImportIssue.Status.RESOLVED,
-        ]
-    ).exists()
+    return (
+        row.issues.filter(severity=ImportIssue.Severity.ERROR)
+        .exclude(
+            status__in=[
+                ImportIssue.Status.APPROVED,
+                ImportIssue.Status.RESOLVED,
+            ]
+        )
+        .exists()
+    )
 
 
 def row_has_unapproved_review_issues(row: ImportRow) -> bool:
     """
-    Warning/info issues that imply user review should be approved before commit.
+    Warning/info issues that imply user review must be approved before commit.
 
     This prevents silent decisions.
     """
 
     return row.issues.filter(
-        severity__in=[
-            ImportIssue.Severity.WARNING,
-            ImportIssue.Severity.INFO,
-        ],
+        code__in=REVIEW_REQUIRED_CODES,
         status=ImportIssue.Status.OPEN,
     ).exists()
 
@@ -105,6 +116,14 @@ def should_import_as_settlement(row: ImportRow) -> bool:
     """
 
     return issue_approved(row, "SETTLEMENT_AS_EXPENSE")
+
+
+def row_should_be_skipped(row: ImportRow) -> bool:
+    """
+    Rows marked skipped through user decision should not be committed.
+    """
+
+    return row.status == ImportRow.Status.SKIPPED
 
 
 def get_expense_date(normalized: dict):
@@ -229,13 +248,13 @@ def infer_settlement_parties(row: ImportRow) -> tuple[User, User]:
     """
     Infers settlement paid_by and paid_to from normalized row.
 
-    Example row:
-    paid_by = Meera
-    participants = [Meera, Rohan]
+    Example:
+    paid_by = Rohan
+    participants = [Rohan, Aisha]
 
     Then:
-    paid_by = Meera
-    paid_to = Rohan
+    paid_by = Rohan
+    paid_to = Aisha
 
     If ambiguous, we block commit instead of guessing silently.
     """
@@ -308,7 +327,7 @@ def can_commit_row(row: ImportRow) -> bool:
     - it is not skipped
     - it is not already committed
     - it has no unresolved ERROR issues
-    - it has no open review issues
+    - it has no open review-required issues
     """
 
     if row.status in [
@@ -348,6 +367,7 @@ def commit_import_batch(batch: ImportBatch, committed_by: User) -> dict:
 
     result = {
         "batch_id": batch.id,
+        "committed_by": committed_by.id,
         "committed_expenses": 0,
         "committed_settlements": 0,
         "skipped_rows": 0,
@@ -356,7 +376,7 @@ def commit_import_batch(batch: ImportBatch, committed_by: User) -> dict:
     }
 
     for row in rows:
-        if row.status == ImportRow.Status.SKIPPED:
+        if row_should_be_skipped(row):
             result["skipped_rows"] += 1
             continue
 
@@ -390,6 +410,7 @@ def commit_import_batch(batch: ImportBatch, committed_by: User) -> dict:
 
     if result["errors"] or result["blocked_rows"]:
         batch.status = ImportBatch.Status.PARTIALLY_COMMITTED
+
     elif total_committed > 0:
         batch.status = ImportBatch.Status.COMMITTED
 

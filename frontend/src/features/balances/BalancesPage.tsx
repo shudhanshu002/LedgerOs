@@ -13,6 +13,7 @@ import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { getGroupBalances } from "./balancesApi";
 import { BalanceRadar } from "./BalanceRadar";
@@ -26,15 +27,32 @@ import {
   getBalanceTextClass,
 } from "./types";
 
+type BalancesPageCache = {
+  balances: GroupBalances | null;
+  selectedPerson: string;
+};
+
+const BALANCES_CACHE_KEY = "balances-page";
+
 export function BalancesPage() {
   usePageTitle("Balances");
 
-  const [balances, setBalances] = useState<GroupBalances | null>(null);
-  const [selectedPerson, setSelectedPerson] = useState<string>("Aisha");
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<BalancesPageCache>(BALANCES_CACHE_KEY);
+  const [balances, setBalances] = useState<GroupBalances | null>(
+    cachedPage?.balances ?? null,
+  );
+  const [selectedPerson, setSelectedPerson] = useState<string>(
+    cachedPage?.selectedPerson ?? "Aisha",
+  );
+  const [loading, setLoading] = useState(!cachedPage);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function loadBalances() {
-    setLoading(true);
+  async function loadBalances({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const groups = await getGroups();
@@ -42,23 +60,37 @@ export function BalancesPage() {
 
       if (!groupId) {
         setBalances(null);
+        setPageCache<BalancesPageCache>(BALANCES_CACHE_KEY, {
+          balances: null,
+          selectedPerson,
+        });
         return;
       }
 
       const data = await getGroupBalances(groupId);
+      const nextSelectedPerson =
+        data.balances.find((line) => line.person === selectedPerson)?.person ??
+        data.balances[0]?.person ??
+        "Aisha";
 
       setBalances(data);
-
-      if (data.balances.length > 0) {
-        setSelectedPerson(data.balances[0].person);
-      }
+      setSelectedPerson(nextSelectedPerson);
+      setPageCache<BalancesPageCache>(BALANCES_CACHE_KEY, {
+        balances: data,
+        selectedPerson: nextSelectedPerson,
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadBalances().catch(console.error);
+    loadBalances({ showLoading: !cachedPage }).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const balanceTotals = useMemo(() => {
@@ -114,11 +146,11 @@ export function BalancesPage() {
         </div>
 
         <button
-          onClick={() => loadBalances().catch(console.error)}
+          onClick={() => loadBalances({ showLoading: false }).catch(console.error)}
           className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
         >
           <RefreshCcw className="h-4 w-4" />
-          Refresh balances
+          {refreshing ? "Refreshing..." : "Refresh balances"}
         </button>
       </div>
 

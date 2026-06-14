@@ -8,6 +8,7 @@ import {
   selectClassName,
 } from "../../components/ui/formStyles";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { getGroups } from "../groups/groupsApi";
 import type { GroupMembership, GroupWithMemberships } from "../groups/types";
@@ -20,15 +21,36 @@ import {
   type Settlement,
 } from "./expensesApi";
 
+type ExpensesPageCache = {
+  groups: GroupWithMemberships[];
+  activeGroupId: number | null;
+  expenses: Expense[];
+  settlements: Settlement[];
+};
+
+const EXPENSES_CACHE_KEY = "expenses-page";
+
 export function ExpensesPage() {
   usePageTitle("Expenses");
 
-  const [groups, setGroups] = useState<GroupWithMemberships[]>([]);
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const cachedPage = getPageCache<ExpensesPageCache>(EXPENSES_CACHE_KEY);
+  const [groups, setGroups] = useState<GroupWithMemberships[]>(
+    cachedPage?.groups ?? [],
+  );
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(
+    cachedPage?.activeGroupId ?? null,
+  );
+  const [expenses, setExpenses] = useState<Expense[]>(
+    cachedPage?.expenses ?? [],
+  );
+  const [settlements, setSettlements] = useState<Settlement[]>(
+    cachedPage?.settlements ?? [],
+  );
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedPage);
+  const [refreshing, setRefreshing] = useState(false);
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [settlementSubmitting, setSettlementSubmitting] = useState(false);
 
   const [description, setDescription] = useState("");
   const [paidBy, setPaidBy] = useState("");
@@ -70,8 +92,12 @@ export function ExpensesPage() {
     Number.isFinite(settlementAmountNumber) &&
     settlementAmountNumber > 0;
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const groupData = await getGroups();
@@ -81,23 +107,34 @@ export function ExpensesPage() {
         getSettlements(),
       ]);
 
+      const nextExpenses = expenseData.filter(
+        (expense) => expense.group === resolvedGroupId,
+      );
+      const nextSettlements = settlementData.filter(
+        (settlement) => settlement.group === resolvedGroupId,
+      );
+
       setGroups(groupData);
       setActiveGroupId(resolvedGroupId);
-      setExpenses(
-        expenseData.filter((expense) => expense.group === resolvedGroupId),
-      );
-      setSettlements(
-        settlementData.filter(
-          (settlement) => settlement.group === resolvedGroupId,
-        ),
-      );
+      setExpenses(nextExpenses);
+      setSettlements(nextSettlements);
+      setPageCache<ExpensesPageCache>(EXPENSES_CACHE_KEY, {
+        groups: groupData,
+        activeGroupId: resolvedGroupId,
+        expenses: nextExpenses,
+        settlements: nextSettlements,
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadData().catch(console.error);
+    loadData({ showLoading: !cachedPage }).catch(console.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -188,6 +225,8 @@ export function ExpensesPage() {
 
     if (!activeGroupId) return;
 
+    setExpenseSubmitting(true);
+
     try {
       await createExpense({
         group: activeGroupId,
@@ -205,11 +244,16 @@ export function ExpensesPage() {
       setDescription("");
       setAmount("");
       setSplitValuesRaw("");
-      await loadData();
-    } catch {
+      await loadData({ showLoading: false });
+    } catch (error) {
       setMessage(
-        "Could not create expense. Check payer, participants, and split details.",
+        formatApiError(
+          error,
+          "Could not create expense. Check payer, participants, and split details.",
+        ),
       );
+    } finally {
+      setExpenseSubmitting(false);
     }
   }
 
@@ -227,6 +271,8 @@ export function ExpensesPage() {
       return;
     }
 
+    setSettlementSubmitting(true);
+
     try {
       await createSettlement({
         group: activeGroupId,
@@ -243,9 +289,11 @@ export function ExpensesPage() {
         )} Rs ${settlementAmountNumber.toFixed(2)}.`,
       );
       setSettlementAmount("");
-      await loadData();
+      await loadData({ showLoading: false });
     } catch (error) {
       setMessage(formatApiError(error, "Could not record settlement."));
+    } finally {
+      setSettlementSubmitting(false);
     }
   }
 
@@ -278,11 +326,11 @@ export function ExpensesPage() {
           </p>
         </div>
         <button
-          onClick={() => loadData().catch(console.error)}
+          onClick={() => loadData({ showLoading: false }).catch(console.error)}
           className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
         >
           <RefreshCcw className="h-4 w-4" />
-          Refresh
+          {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
@@ -399,10 +447,10 @@ export function ExpensesPage() {
               className={fieldClassName}
             />
             <button
-              disabled={!canCreateExpense}
+              disabled={!canCreateExpense || expenseSubmitting}
               className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Create expense
+              {expenseSubmitting ? "Creating..." : "Create expense"}
             </button>
           </div>
         </form>
@@ -454,10 +502,10 @@ export function ExpensesPage() {
               />
             </div>
             <button
-              disabled={!canCreateSettlement}
+              disabled={!canCreateSettlement || settlementSubmitting}
               className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Record payment
+              {settlementSubmitting ? "Recording..." : "Record payment"}
             </button>
           </div>
         </form>

@@ -287,6 +287,12 @@ export function BalancesPage() {
                       Expense ID: {item.expense_id}
                     </p>
                   ) : null}
+
+                  {item.settlement_id ? (
+                    <p className="mt-3 text-xs text-ledger-muted">
+                      Settlement ID: {item.settlement_id}
+                    </p>
+                  ) : null}
                 </div>
               );
             })}

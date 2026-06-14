@@ -9,6 +9,7 @@ export type BalanceTone = "green" | "red" | "neutral";
 export type BreakdownItem = {
   type?: string;
   expense_id?: number;
+  settlement_id?: number;
   date?: string;
   description?: string;
   amount_paise?: number;

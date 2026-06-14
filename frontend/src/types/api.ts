@@ -130,8 +130,18 @@ export type GroupBalances = {
   group_id: number;
   group_name: string;
   balances: BalanceLine[];
-  breakdown: Record<string, unknown[]>;
+  breakdown: Record<string, BalanceBreakdownItem[]>;
   suggested_settlements: SuggestedSettlement[];
+};
+
+export type BalanceBreakdownItem = {
+  type?: string;
+  expense_id?: number;
+  settlement_id?: number;
+  date?: string;
+  description?: string;
+  amount_paise?: number;
+  explanation?: string;
 };
 
 export type AuditLog = {

@@ -8,7 +8,7 @@ import {
   selectClassName,
 } from "../../components/ui/formStyles";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
-import { getPageCache, setPageCache } from "../../lib/pageCache";
+import { clearPageCache, getPageCache, setPageCache } from "../../lib/pageCache";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { getGroups } from "../groups/groupsApi";
 import type { GroupMembership, GroupWithMemberships } from "../groups/types";
@@ -29,6 +29,7 @@ type ExpensesPageCache = {
 };
 
 const EXPENSES_CACHE_KEY = "expenses-page";
+const BALANCES_CACHE_KEY = "balances-page";
 
 export function ExpensesPage() {
   usePageTitle("Expenses");
@@ -98,7 +99,13 @@ export function ExpensesPage() {
     Number.isFinite(settlementAmountNumber) &&
     settlementAmountNumber > 0;
 
-  async function loadData({ showLoading = true } = {}) {
+  async function loadData({
+    showLoading = true,
+    successMessage,
+  }: {
+    showLoading?: boolean;
+    successMessage?: string;
+  } = {}) {
     if (showLoading) {
       setLoading(true);
     } else {
@@ -130,6 +137,10 @@ export function ExpensesPage() {
         expenses: nextExpenses,
         settlements: nextSettlements,
       });
+
+      if (successMessage) {
+        setMessage(successMessage);
+      }
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -254,11 +265,14 @@ export function ExpensesPage() {
         split_values_raw: splitValuesRaw.trim(),
       });
 
-      setMessage("Expense created.");
       setDescription("");
       setAmount("");
       setSplitValuesRaw("");
-      await loadData({ showLoading: false });
+      clearPageCache(BALANCES_CACHE_KEY);
+      await loadData({
+        showLoading: false,
+        successMessage: "Expense created. Expenses and payments refreshed.",
+      });
     } catch (error) {
       setMessage(
         formatApiError(
@@ -300,13 +314,16 @@ export function ExpensesPage() {
         note: "Manual settlement",
       });
 
-      setMessage(
-        `Payment recorded: ${getMemberName(settlementFrom)} paid ${getMemberName(
-          settlementTo,
-        )} Rs ${settlementAmountNumber.toFixed(2)}.`,
-      );
       setSettlementAmount("");
-      await loadData({ showLoading: false });
+      clearPageCache(BALANCES_CACHE_KEY);
+      await loadData({
+        showLoading: false,
+        successMessage: `Payment recorded: ${getMemberName(
+          settlementFrom,
+        )} paid ${getMemberName(
+          settlementTo,
+        )} Rs ${settlementAmountNumber.toFixed(2)}. Expenses and payments refreshed.`,
+      });
     } catch (error) {
       setMessage(formatApiError(error, "Could not record settlement."));
     } finally {
@@ -344,10 +361,19 @@ export function ExpensesPage() {
           </p>
         </div>
         <button
-          onClick={() => loadData({ showLoading: false }).catch(console.error)}
-          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
+          onClick={() =>
+            loadData({
+              showLoading: false,
+              successMessage: "Expenses and payments refreshed.",
+            }).catch((error) => {
+              console.error(error);
+              setMessage("Could not refresh expenses. Please try again.");
+            })
+          }
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <RefreshCcw className="h-4 w-4" />
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>

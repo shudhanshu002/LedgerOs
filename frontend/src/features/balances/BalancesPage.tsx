@@ -46,8 +46,15 @@ export function BalancesPage() {
   );
   const [loading, setLoading] = useState(!cachedPage);
   const [refreshing, setRefreshing] = useState(false);
+  const [message, setMessage] = useState("");
 
-  async function loadBalances({ showLoading = true } = {}) {
+  async function loadBalances({
+    showLoading = true,
+    successMessage,
+  }: {
+    showLoading?: boolean;
+    successMessage?: string;
+  } = {}) {
     if (showLoading) {
       setLoading(true);
     } else {
@@ -79,6 +86,10 @@ export function BalancesPage() {
         balances: data,
         selectedPerson: nextSelectedPerson,
       });
+
+      if (successMessage) {
+        setMessage(successMessage);
+      }
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -146,13 +157,28 @@ export function BalancesPage() {
         </div>
 
         <button
-          onClick={() => loadBalances({ showLoading: false }).catch(console.error)}
-          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
+          onClick={() =>
+            loadBalances({
+              showLoading: false,
+              successMessage: "Balances refreshed from committed ledger rows.",
+            }).catch((error) => {
+              console.error(error);
+              setMessage("Could not refresh balances. Please try again.");
+            })
+          }
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <RefreshCcw className="h-4 w-4" />
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           {refreshing ? "Refreshing..." : "Refresh balances"}
         </button>
       </div>
+
+      {message ? (
+        <div className="mt-6 rounded-2xl border border-ledger-green/20 bg-ledger-green/10 px-4 py-3 text-sm text-ledger-green">
+          {message}
+        </div>
+      ) : null}
 
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard

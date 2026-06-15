@@ -427,6 +427,85 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
             }
         )
 
+    @action(detail=True, methods=["get"], url_path="report")
+    def report(self, request, pk=None):
+        """
+        Returns the assignment import report for one batch.
+
+        This is the explicit deliverable:
+        - every anomaly detected
+        - row number and current row status
+        - policy/suggested action
+        - reviewer action taken, if any
+        """
+
+        batch = self.get_object()
+        refresh_batch_summary(batch)
+
+        issues = (
+            batch.issues
+            .select_related("row", "reviewed_by")
+            .prefetch_related("decisions__decided_by")
+            .order_by("row__row_number", "severity", "code", "id")
+        )
+
+        anomalies = []
+
+        for issue in issues:
+            latest_decision = issue.decisions.order_by("-created_at").first()
+
+            anomalies.append(
+                {
+                    "issue_id": issue.id,
+                    "csv_row_number": issue.row.row_number if issue.row else None,
+                    "row_status": issue.row.status if issue.row else None,
+                    "code": issue.code,
+                    "severity": issue.severity,
+                    "issue_status": issue.status,
+                    "message": issue.message,
+                    "policy": issue.policy,
+                    "suggested_action": issue.suggested_action,
+                    "action_taken": (
+                        latest_decision.decision
+                        if latest_decision
+                        else "PENDING_REVIEW"
+                    ),
+                    "reviewed_by": (
+                        issue.reviewed_by.username
+                        if issue.reviewed_by
+                        else None
+                    ),
+                    "reviewed_at": (
+                        issue.reviewed_at.isoformat()
+                        if issue.reviewed_at
+                        else None
+                    ),
+                    "resolution_note": issue.resolution_note,
+                }
+            )
+
+        return Response(
+            {
+                "report_type": "LedgerOS CSV Import Report",
+                "generated_at": timezone.now().isoformat(),
+                "batch": {
+                    "id": batch.id,
+                    "group_id": batch.group_id,
+                    "group_name": batch.group.name,
+                    "uploaded_by": batch.uploaded_by.username,
+                    "original_filename": batch.original_filename,
+                    "display_filename": humanize_filename(batch.original_filename),
+                    "status": batch.status,
+                    "total_rows": batch.total_rows,
+                    "created_at": batch.created_at.isoformat(),
+                    "updated_at": batch.updated_at.isoformat(),
+                },
+                "summary": batch.summary,
+                "anomaly_count": len(anomalies),
+                "anomalies": anomalies,
+            }
+        )
+
     @action(detail=True, methods=["post"], url_path="commit")
     def commit(self, request, pk=None):
         """

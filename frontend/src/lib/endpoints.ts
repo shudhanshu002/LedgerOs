@@ -22,6 +22,7 @@ export const endpoints = {
     detail: (batchId: number) => `/api/imports/${batchId}/`,
     summary: (batchId: number) => `/api/imports/${batchId}/summary/`,
     issues: (batchId: number) => `/api/imports/${batchId}/issues/`,
+    report: (batchId: number) => `/api/imports/${batchId}/report/`,
     commit: (batchId: number) => `/api/imports/${batchId}/commit/`,
     issueDecision: (issueId: number) =>
       `/api/imports/issues/${issueId}/decision/`,

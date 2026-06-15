@@ -40,6 +40,12 @@ export async function getImportIssues(batchId: number) {
   return response.data;
 }
 
+export async function getImportReport(batchId: number) {
+  const response = await api.get(endpoints.imports.report(batchId));
+
+  return response.data;
+}
+
 export async function commitImportBatch(batchId: number) {
   const response = await api.post<ImportCommitResult>(
     endpoints.imports.commit(batchId),

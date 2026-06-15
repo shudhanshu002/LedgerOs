@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  FileDown,
   FileSpreadsheet,
   ShieldAlert,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import {
   commitImportBatch,
   getImportBatches,
   getImportIssues,
+  getImportReport,
 } from "./importsApi";
 import { IssueCodeGrid } from "./IssueCodeGrid";
 import { IssueQueue } from "./IssueQueue";
@@ -195,6 +197,30 @@ export function ImportCockpitPage() {
   const summary = selectedBatch?.summary;
   const safeRows = summary?.valid_rows ?? 0;
 
+  async function handleDownloadReport() {
+    if (!selectedBatchId) return;
+
+    try {
+      const report = await getImportReport(selectedBatchId);
+      const blob = new Blob([JSON.stringify(report, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `ledgeros-import-report-batch-${selectedBatchId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Import report downloaded.");
+    } catch (error) {
+      console.error(error);
+      setMessage("Could not download import report.");
+    }
+  }
+
   return (
     <section className="py-8">
       <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
@@ -295,6 +321,34 @@ export function ImportCockpitPage() {
               });
             }}
           />
+
+          <div className="glass-panel rounded-3xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl border border-ledger-blue/20 bg-ledger-blue/10 p-3 text-ledger-blue">
+                <FileDown className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h2 className="font-display text-2xl font-semibold">
+                  Import report
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-ledger-muted">
+                  Download the app-produced report for this batch. It lists
+                  every anomaly detected, the policy used, current row status,
+                  and the reviewer action taken.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleDownloadReport}
+              disabled={!selectedBatchId}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FileDown className="h-4 w-4" />
+              Download JSON report
+            </button>
+          </div>
 
           <ImportBatchSwitcher
             batches={batches}

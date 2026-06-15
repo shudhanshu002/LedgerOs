@@ -12,6 +12,7 @@ import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { getDashboardData } from "./dashboardApi";
 import { SystemFlow } from "./SystemFlow";
@@ -24,19 +25,33 @@ import {
   getDashboardImportStats,
 } from "./types";
 
+type DashboardPageCache = {
+  batch: ImportBatch | null;
+  balances: GroupBalances | null;
+};
+
+const DASHBOARD_CACHE_KEY = "dashboard-page";
+
 export function DashboardPage() {
   usePageTitle("Command Center");
 
-  const [batch, setBatch] = useState<ImportBatch | null>(null);
-  const [balances, setBalances] = useState<GroupBalances | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<DashboardPageCache>(DASHBOARD_CACHE_KEY);
+  const [batch, setBatch] = useState<ImportBatch | null>(
+    cachedPage?.batch ?? null,
+  );
+  const [balances, setBalances] = useState<GroupBalances | null>(
+    cachedPage?.balances ?? null,
+  );
+  const [loading, setLoading] = useState(!cachedPage);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadData() {
-      setLoading(true);
+    async function loadData({ showLoading = true } = {}) {
+      if (showLoading) {
+        setLoading(true);
+      }
       setError("");
 
       try {
@@ -57,6 +72,10 @@ export function DashboardPage() {
         if (!cancelled) {
           setBatch(data.latestBatch);
           setBalances(data.balances);
+          setPageCache<DashboardPageCache>(DASHBOARD_CACHE_KEY, {
+            batch: data.latestBatch,
+            balances: data.balances,
+          });
         }
       } catch {
         if (!cancelled) {
@@ -69,7 +88,7 @@ export function DashboardPage() {
       }
     }
 
-    loadData();
+    loadData({ showLoading: !cachedPage });
 
     return () => {
       cancelled = true;

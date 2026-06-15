@@ -9,6 +9,7 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { ImportBatchSwitcher } from "./ImportBatchSwitcher";
 import { ImportCommitResultCard } from "./ImportCommitResultCard";
@@ -23,6 +24,14 @@ import { IssueQueue } from "./IssueQueue";
 import { UploadCsvCard } from "./UploadCsvCard";
 import type { ImportBatch, ImportCommitResult, ImportIssue } from "./types";
 
+type ImportCockpitPageCache = {
+  batches: ImportBatch[];
+  selectedBatchId: number | null;
+  activeGroupId: number | null;
+  issues: ImportIssue[];
+};
+
+const IMPORT_COCKPIT_CACHE_KEY = "import-cockpit-page";
 
 function getStatusTone(status: string) {
   if (status === "COMMITTED") return "green";
@@ -35,12 +44,22 @@ function getStatusTone(status: string) {
 export function ImportCockpitPage() {
   usePageTitle("Import Cockpit");
 
-  const [batches, setBatches] = useState<ImportBatch[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-  const [issues, setIssues] = useState<ImportIssue[]>([]);
+  const cachedPage =
+    getPageCache<ImportCockpitPageCache>(IMPORT_COCKPIT_CACHE_KEY);
+  const [batches, setBatches] = useState<ImportBatch[]>(
+    cachedPage?.batches ?? [],
+  );
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(
+    cachedPage?.selectedBatchId ?? null,
+  );
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(
+    cachedPage?.activeGroupId ?? null,
+  );
+  const [issues, setIssues] = useState<ImportIssue[]>(
+    cachedPage?.issues ?? [],
+  );
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedPage);
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -70,13 +89,21 @@ export function ImportCockpitPage() {
     try {
       const data = await getImportIssues(batchId);
       setIssues(data);
+      setPageCache<ImportCockpitPageCache>(IMPORT_COCKPIT_CACHE_KEY, {
+        batches,
+        selectedBatchId: batchId,
+        activeGroupId,
+        issues: data,
+      });
     } finally {
       setIssuesLoading(false);
     }
   }
 
-  async function refreshAll() {
-    setLoading(true);
+  async function refreshAll({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    }
 
     try {
       const groups = await getGroups();
@@ -86,19 +113,30 @@ export function ImportCockpitPage() {
 
       const loadedBatches = await loadBatches();
       const batchId = selectedBatchId ?? loadedBatches[0]?.id;
+      let loadedIssues: ImportIssue[] = [];
 
       if (batchId) {
-        await loadIssues(batchId);
+        loadedIssues = await getImportIssues(batchId);
+        setIssues(loadedIssues);
       } else {
         setIssues([]);
       }
+
+      setPageCache<ImportCockpitPageCache>(IMPORT_COCKPIT_CACHE_KEY, {
+        batches: loadedBatches,
+        selectedBatchId: batchId ?? null,
+        activeGroupId: resolvedGroupId,
+        issues: loadedIssues,
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    refreshAll().catch(console.error);
+    refreshAll({ showLoading: !cachedPage }).catch(console.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -132,7 +170,7 @@ export function ImportCockpitPage() {
 
       setCommitResult(data);
 
-      await refreshAll();
+      await refreshAll({ showLoading: false });
     } catch (error) {
       console.error(error);
       setMessage("Commit failed. Some issues may still need review.");

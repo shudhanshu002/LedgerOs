@@ -15,6 +15,7 @@ import {
   selectClassName,
 } from "../../components/ui/formStyles";
 import { resolveActiveGroupId, saveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { GroupSafetyCard } from "./GroupSafetyCard";
 import {
   addGroupMember,
@@ -31,13 +32,26 @@ import {
   calculateGroupStats,
 } from "./types";
 
+type GroupsPageCache = {
+  groups: GroupWithMemberships[];
+  users: UserMini[];
+  activeGroupId: number | null;
+};
+
+const GROUPS_CACHE_KEY = "groups-page";
+
 export function GroupsPage() {
   usePageTitle("Groups");
 
-  const [groups, setGroups] = useState<GroupWithMemberships[]>([]);
-  const [users, setUsers] = useState<UserMini[]>([]);
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<GroupsPageCache>(GROUPS_CACHE_KEY);
+  const [groups, setGroups] = useState<GroupWithMemberships[]>(
+    cachedPage?.groups ?? [],
+  );
+  const [users, setUsers] = useState<UserMini[]>(cachedPage?.users ?? []);
+  const [activeGroupId, setActiveGroupId] = useState<number | null>(
+    cachedPage?.activeGroupId ?? null,
+  );
+  const [loading, setLoading] = useState(!cachedPage);
   const [message, setMessage] = useState("");
 
   const [groupName, setGroupName] = useState("");
@@ -59,6 +73,11 @@ export function GroupsPage() {
     setGroups(groupData);
     setUsers(userData);
     setActiveGroupId(resolvedGroupId);
+    setPageCache<GroupsPageCache>(GROUPS_CACHE_KEY, {
+      groups: groupData,
+      users: userData,
+      activeGroupId: resolvedGroupId,
+    });
   }
 
   useEffect(() => {

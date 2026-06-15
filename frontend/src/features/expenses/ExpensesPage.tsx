@@ -8,7 +8,7 @@ import {
   selectClassName,
 } from "../../components/ui/formStyles";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
-import { clearPageCache, getPageCache, setPageCache } from "../../lib/pageCache";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { getGroups } from "../groups/groupsApi";
 import type { GroupMembership, GroupWithMemberships } from "../groups/types";
@@ -29,7 +29,6 @@ type ExpensesPageCache = {
 };
 
 const EXPENSES_CACHE_KEY = "expenses-page";
-const BALANCES_CACHE_KEY = "balances-page";
 
 export function ExpensesPage() {
   usePageTitle("Expenses");
@@ -268,7 +267,6 @@ export function ExpensesPage() {
       setDescription("");
       setAmount("");
       setSplitValuesRaw("");
-      clearPageCache(BALANCES_CACHE_KEY);
       await loadData({
         showLoading: false,
         successMessage: "Expense created. Expenses and payments refreshed.",
@@ -315,7 +313,6 @@ export function ExpensesPage() {
       });
 
       setSettlementAmount("");
-      clearPageCache(BALANCES_CACHE_KEY);
       await loadData({
         showLoading: false,
         successMessage: `Payment recorded: ${getMemberName(

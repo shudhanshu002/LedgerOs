@@ -9,30 +9,48 @@ import {
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getAuditLogs } from "./auditApi";
 import { AuditEventCard } from "./AuditEventCard";
 import { AuditTrustPanel } from "./AuditTrustPanel";
 import { type AuditLog, calculateAuditStats } from "./types";
 
+type AuditTrailPageCache = {
+  logs: AuditLog[];
+};
+
+const AUDIT_CACHE_KEY = "audit-trail-page";
+
 export function AuditTrailPage() {
   usePageTitle("Audit Trail");
 
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<AuditTrailPageCache>(AUDIT_CACHE_KEY);
+  const [logs, setLogs] = useState<AuditLog[]>(cachedPage?.logs ?? []);
+  const [loading, setLoading] = useState(!cachedPage);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function loadLogs() {
-    setLoading(true);
+  async function loadLogs({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const data = await getAuditLogs();
       setLogs(data);
+      setPageCache<AuditTrailPageCache>(AUDIT_CACHE_KEY, { logs: data });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadLogs().catch(console.error);
+    loadLogs({ showLoading: !cachedPage }).catch(console.error);
   }, []);
 
   const stats = useMemo(() => {
@@ -72,11 +90,12 @@ export function AuditTrailPage() {
         </div>
 
         <button
-          onClick={() => loadLogs().catch(console.error)}
-          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
+          onClick={() => loadLogs({ showLoading: false }).catch(console.error)}
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <RefreshCcw className="h-4 w-4" />
-          Refresh logs
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Refreshing..." : "Refresh logs"}
         </button>
       </div>
 

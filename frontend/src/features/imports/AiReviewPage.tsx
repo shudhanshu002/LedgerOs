@@ -14,6 +14,7 @@ import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { getImportAiExplanation, getImportBatches } from "./importsApi";
 import type { AiImportExplanation, AiIssueExplanation } from "./types";
@@ -30,14 +31,28 @@ function getSeverityIcon(severity: AiIssueExplanation["severity"]) {
   return Lightbulb;
 }
 
+type AiReviewPageCache = {
+  report: AiImportExplanation | null;
+};
+
+const AI_REVIEW_CACHE_KEY = "ai-review-page";
+
 export function AiReviewPage() {
   usePageTitle("AI Review");
 
-  const [report, setReport] = useState<AiImportExplanation | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<AiReviewPageCache>(AI_REVIEW_CACHE_KEY);
+  const [report, setReport] = useState<AiImportExplanation | null>(
+    cachedPage?.report ?? null,
+  );
+  const [loading, setLoading] = useState(!cachedPage);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function loadReport() {
-    setLoading(true);
+  async function loadReport({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const [groups, batches] = await Promise.all([
@@ -49,18 +64,28 @@ export function AiReviewPage() {
 
       if (!batch) {
         setReport(null);
+        setPageCache<AiReviewPageCache>(AI_REVIEW_CACHE_KEY, {
+          report: null,
+        });
         return;
       }
 
       const data = await getImportAiExplanation(batch.id);
       setReport(data);
+      setPageCache<AiReviewPageCache>(AI_REVIEW_CACHE_KEY, {
+        report: data,
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadReport().catch(console.error);
+    loadReport({ showLoading: !cachedPage }).catch(console.error);
   }, []);
 
   if (loading) {
@@ -107,11 +132,12 @@ export function AiReviewPage() {
         </div>
 
         <button
-          onClick={() => loadReport().catch(console.error)}
-          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
+          onClick={() => loadReport({ showLoading: false }).catch(console.error)}
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <RefreshCcw className="h-4 w-4" />
-          Refresh report
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Refreshing..." : "Refresh report"}
         </button>
       </div>
 

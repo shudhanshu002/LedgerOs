@@ -218,7 +218,7 @@ export function BalancesPage() {
         <BalanceRadar balances={balances.balances} />
       </div>
 
-      <div className="mt-8 grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+      <div className="mt-8 grid items-start gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <div className="space-y-6">
           <div className="glass-panel ring-gradient rounded-3xl p-6">
             <div className="flex items-center gap-3">
@@ -299,7 +299,7 @@ export function BalancesPage() {
             </StatusBadge>
           </div>
 
-          <div className="mt-6 max-h-[850px] space-y-3 overflow-y-auto pr-1">
+          <div className="mt-6 max-h-[min(70vh,760px)] space-y-3 overflow-y-auto pr-1">
             {selectedBreakdown.map((item, index) => {
               const isPositive = (item.amount_paise ?? 0) > 0;
 

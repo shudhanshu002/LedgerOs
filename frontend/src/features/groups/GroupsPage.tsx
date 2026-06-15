@@ -26,6 +26,7 @@ import {
 import { MemberTimeline } from "./MemberTimeline";
 import {
   type GroupWithMemberships,
+  type GroupMembership,
   type UserMini,
   calculateGroupStats,
 } from "./types";
@@ -45,10 +46,15 @@ export function GroupsPage() {
   const [memberRole, setMemberRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [memberJoinedAt, setMemberJoinedAt] = useState("2026-02-01");
   const [memberLeftAt, setMemberLeftAt] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+  const [updatingMembershipId, setUpdatingMembershipId] = useState<
+    number | null
+  >(null);
 
-  async function loadGroups() {
+  async function loadGroups(preferredGroupId = activeGroupId) {
     const [groupData, userData] = await Promise.all([getGroups(), getUsers()]);
-    const resolvedGroupId = resolveActiveGroupId(groupData, activeGroupId);
+    const resolvedGroupId = resolveActiveGroupId(groupData, preferredGroupId);
 
     setGroups(groupData);
     setUsers(userData);
@@ -66,10 +72,17 @@ export function GroupsPage() {
     event.preventDefault();
     setMessage("");
 
+    if (!groupName.trim()) {
+      setMessage("Group name is required.");
+      return;
+    }
+
+    setCreatingGroup(true);
+
     try {
       const group = await createGroup({
-        name: groupName,
-        description: groupDescription,
+        name: groupName.trim(),
+        description: groupDescription.trim(),
       });
 
       saveActiveGroupId(group.id);
@@ -77,9 +90,11 @@ export function GroupsPage() {
       setGroupName("");
       setGroupDescription("");
       setMessage(`Created group: ${group.name}`);
-      await loadGroups();
+      await loadGroups(group.id);
     } catch {
       setMessage("Could not create group. Check required fields.");
+    } finally {
+      setCreatingGroup(false);
     }
   }
 
@@ -89,6 +104,7 @@ export function GroupsPage() {
     if (!activeGroupId || !memberUserId) return;
 
     setMessage("");
+    setAddingMember(true);
 
     try {
       await addGroupMember(activeGroupId, {
@@ -101,23 +117,45 @@ export function GroupsPage() {
       setMessage("Member timeline added.");
       setMemberUserId("");
       setMemberLeftAt("");
-      await loadGroups();
+      await loadGroups(activeGroupId);
     } catch {
       setMessage("Could not add member. The user may already have that join date.");
+    } finally {
+      setAddingMember(false);
     }
   }
 
-  async function markLeft(membershipId: number) {
-    const leftAt = window.prompt("Leave date (YYYY-MM-DD)", "2026-03-31");
+  async function markLeft(membership: GroupMembership) {
+    const defaultDate =
+      membership.left_at ?? new Date().toISOString().slice(0, 10);
+    const leftAt = window.prompt(
+      `Leave date for ${membership.user_detail.username} (YYYY-MM-DD)`,
+      defaultDate,
+    );
 
     if (!leftAt) return;
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(leftAt)) {
+      setMessage("Use YYYY-MM-DD format for the leave date.");
+      return;
+    }
+
+    if (leftAt < membership.joined_at) {
+      setMessage("Leave date cannot be before the member joined.");
+      return;
+    }
+
+    setUpdatingMembershipId(membership.id);
+    setMessage("");
+
     try {
-      await updateGroupMembership(membershipId, { left_at: leftAt });
+      await updateGroupMembership(membership.id, { left_at: leftAt });
       setMessage("Membership leave date updated.");
-      await loadGroups();
+      await loadGroups(activeGroupId);
     } catch {
       setMessage("Could not update membership.");
+    } finally {
+      setUpdatingMembershipId(null);
     }
   }
 
@@ -203,8 +241,11 @@ export function GroupsPage() {
               placeholder="Description"
               className={`${fieldClassName} min-h-24 resize-none`}
             />
-            <button className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg">
-              Create group
+            <button
+              disabled={creatingGroup || !groupName.trim()}
+              className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {creatingGroup ? "Creating..." : "Create group"}
             </button>
           </div>
         </form>
@@ -327,8 +368,11 @@ export function GroupsPage() {
                 />
               </div>
 
-              <button className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg">
-                Add timeline entry
+              <button
+                disabled={addingMember || !memberUserId}
+                className="rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {addingMember ? "Adding..." : "Add timeline entry"}
               </button>
             </div>
           </form>
@@ -356,10 +400,15 @@ export function GroupsPage() {
                     </p>
                   </div>
                   <button
-                    onClick={() => markLeft(membership.id)}
-                    className="rounded-xl border border-white/10 px-3 py-2 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white"
+                    onClick={() => markLeft(membership)}
+                    disabled={updatingMembershipId === membership.id}
+                    className="rounded-xl border border-white/10 px-3 py-2 text-sm text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Set leave date
+                    {updatingMembershipId === membership.id
+                      ? "Updating..."
+                      : membership.left_at
+                        ? "Change leave date"
+                        : "Set leave date"}
                   </button>
                 </div>
               ))}

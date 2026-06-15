@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ReceiptText, RefreshCcw, Scale } from "lucide-react";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -51,6 +51,8 @@ export function ExpensesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [settlementSubmitting, setSettlementSubmitting] = useState(false);
+  const expenseSubmitLock = useRef(false);
+  const settlementSubmitLock = useRef(false);
 
   const [description, setDescription] = useState("");
   const [paidBy, setPaidBy] = useState("");
@@ -78,8 +80,12 @@ export function ExpensesPage() {
     [members, expenseDate],
   );
   const hasExpenseMembers = expenseMembers.length > 0;
+  const amountNumber = Number(amount);
   const canCreateExpense =
     Boolean(activeGroupId) &&
+    description.trim().length >= 2 &&
+    Number.isFinite(amountNumber) &&
+    amountNumber > 0 &&
     Boolean(paidBy) &&
     participants.length > 0 &&
     hasExpenseMembers;
@@ -224,20 +230,28 @@ export function ExpensesPage() {
     event.preventDefault();
 
     if (!activeGroupId) return;
+    if (expenseSubmitLock.current) return;
+    if (!canCreateExpense) {
+      setMessage(
+        "Add a description, amount, active payer, and at least one active participant.",
+      );
+      return;
+    }
 
+    expenseSubmitLock.current = true;
     setExpenseSubmitting(true);
 
     try {
       await createExpense({
         group: activeGroupId,
         paid_by: Number(paidBy),
-        description,
+        description: description.trim(),
         expense_date: expenseDate,
-        original_amount: amount,
+        original_amount: amount.trim(),
         original_currency: currency,
         split_type: splitType,
         participants,
-        split_values_raw: splitValuesRaw,
+        split_values_raw: splitValuesRaw.trim(),
       });
 
       setMessage("Expense created.");
@@ -253,6 +267,7 @@ export function ExpensesPage() {
         ),
       );
     } finally {
+      expenseSubmitLock.current = false;
       setExpenseSubmitting(false);
     }
   }
@@ -261,6 +276,7 @@ export function ExpensesPage() {
     event.preventDefault();
 
     if (!activeGroupId) return;
+    if (settlementSubmitLock.current) return;
 
     if (!canCreateSettlement) {
       setMessage(
@@ -271,6 +287,7 @@ export function ExpensesPage() {
       return;
     }
 
+    settlementSubmitLock.current = true;
     setSettlementSubmitting(true);
 
     try {
@@ -293,6 +310,7 @@ export function ExpensesPage() {
     } catch (error) {
       setMessage(formatApiError(error, "Could not record settlement."));
     } finally {
+      settlementSubmitLock.current = false;
       setSettlementSubmitting(false);
     }
   }
@@ -420,20 +438,29 @@ export function ExpensesPage() {
               outside their membership period.
             </p>
             <div className="grid gap-2 md:grid-cols-3">
-              {expenseMembers.map((member) => (
-                <label
-                  key={member.id}
-                  className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
-                >
-                  <input
-                    className="mr-2"
-                    type="checkbox"
-                    checked={participants.includes(member.user)}
-                    onChange={() => toggleParticipant(member.user)}
-                  />
-                  {member.user_detail.username}
-                </label>
-              ))}
+              {members.map((member) => {
+                const isActive = isMemberActiveOn(member, expenseDate);
+
+                return (
+                  <label
+                    key={member.id}
+                    className={`rounded-2xl border px-4 py-3 text-sm transition ${
+                      isActive
+                        ? "border-white/10 bg-white/[0.03]"
+                        : "cursor-not-allowed border-white/5 bg-white/[0.02] text-ledger-muted opacity-60"
+                    }`}
+                  >
+                    <input
+                      className="mr-2"
+                      type="checkbox"
+                      disabled={!isActive}
+                      checked={participants.includes(member.user)}
+                      onChange={() => toggleParticipant(member.user)}
+                    />
+                    {renderMemberOptionLabel(member, expenseDate)}
+                  </label>
+                );
+              })}
             </div>
             {!expenseMembers.length ? (
               <p className="rounded-2xl border border-ledger-amber/20 bg-ledger-amber/10 px-4 py-3 text-sm text-ledger-muted">

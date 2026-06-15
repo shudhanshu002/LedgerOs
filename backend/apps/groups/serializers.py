@@ -54,6 +54,10 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         joined_at = attrs.get("joined_at")
         left_at = attrs.get("left_at")
 
+        if self.instance:
+            joined_at = joined_at or self.instance.joined_at
+            left_at = left_at if "left_at" in attrs else self.instance.left_at
+
         if left_at and joined_at and left_at < joined_at:
             raise serializers.ValidationError(
                 {

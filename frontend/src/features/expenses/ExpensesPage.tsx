@@ -112,12 +112,12 @@ export function ExpensesPage() {
     }
 
     try {
-      const groupData = await getGroups();
-      const resolvedGroupId = resolveActiveGroupId(groupData, activeGroupId);
-      const [expenseData, settlementData] = await Promise.all([
+      const [groupData, expenseData, settlementData] = await Promise.all([
+        getGroups(),
         getExpenses(),
         getSettlements(),
       ]);
+      const resolvedGroupId = resolveActiveGroupId(groupData, activeGroupId);
 
       const nextExpenses = expenseData.filter(
         (expense) => expense.group === resolvedGroupId,

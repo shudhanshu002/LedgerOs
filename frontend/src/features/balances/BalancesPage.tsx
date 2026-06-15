@@ -12,7 +12,7 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
-import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getActiveGroupId, resolveActiveGroupId } from "../../lib/activeGroup";
 import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { getGroupBalances } from "./balancesApi";
@@ -62,8 +62,23 @@ export function BalancesPage() {
     }
 
     try {
-      const groups = await getGroups();
-      const groupId = resolveActiveGroupId(groups);
+      const savedGroupId = getActiveGroupId();
+      const groupsPromise = getGroups();
+      const savedBalancesPromise = savedGroupId
+        ? getGroupBalances(savedGroupId)
+        : null;
+
+      const [groupsResult, savedBalancesResult] = await Promise.allSettled([
+        groupsPromise,
+        savedBalancesPromise ?? Promise.resolve(null),
+      ]);
+
+      if (groupsResult.status === "rejected") {
+        throw groupsResult.reason;
+      }
+
+      const groups = groupsResult.value;
+      const groupId = resolveActiveGroupId(groups, savedGroupId);
 
       if (!groupId) {
         setBalances(null);
@@ -74,7 +89,12 @@ export function BalancesPage() {
         return;
       }
 
-      const data = await getGroupBalances(groupId);
+      const data =
+        savedGroupId === groupId &&
+        savedBalancesResult.status === "fulfilled" &&
+        savedBalancesResult.value
+          ? savedBalancesResult.value
+          : await getGroupBalances(groupId);
       const nextSelectedPerson =
         data.balances.find((line) => line.person === selectedPerson)?.person ??
         data.balances[0]?.person ??

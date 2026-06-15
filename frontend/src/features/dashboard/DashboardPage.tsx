@@ -6,12 +6,13 @@ import {
   CircleDollarSign,
   Database,
   FileWarning,
+  RefreshCcw,
 } from "lucide-react";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { MetricCard } from "../../components/ui/MetricCard";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { LoadingState } from "../../components/ui/LoadingState";
-import { resolveActiveGroupId } from "../../lib/activeGroup";
+import { getActiveGroupId, resolveActiveGroupId } from "../../lib/activeGroup";
 import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getGroups } from "../groups/groupsApi";
 import { getDashboardData } from "./dashboardApi";
@@ -43,6 +44,7 @@ export function DashboardPage() {
     cachedPage?.balances ?? null,
   );
   const [loading, setLoading] = useState(!cachedPage);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,12 +53,29 @@ export function DashboardPage() {
     async function loadData({ showLoading = true } = {}) {
       if (showLoading) {
         setLoading(true);
+      } else {
+        setSyncing(true);
       }
       setError("");
 
       try {
-        const groups = await getGroups();
-        const groupId = resolveActiveGroupId(groups);
+        const savedGroupId = getActiveGroupId();
+        const groupsPromise = getGroups();
+        const savedDashboardPromise = savedGroupId
+          ? getDashboardData(savedGroupId)
+          : null;
+
+        const [groupsResult, savedDashboardResult] = await Promise.allSettled([
+          groupsPromise,
+          savedDashboardPromise ?? Promise.resolve(null),
+        ]);
+
+        if (groupsResult.status === "rejected") {
+          throw groupsResult.reason;
+        }
+
+        const groups = groupsResult.value;
+        const groupId = resolveActiveGroupId(groups, savedGroupId);
 
         if (!groupId) {
           if (!cancelled) {
@@ -67,7 +86,12 @@ export function DashboardPage() {
           return;
         }
 
-        const data = await getDashboardData(groupId);
+        const data =
+          savedGroupId === groupId &&
+          savedDashboardResult.status === "fulfilled" &&
+          savedDashboardResult.value
+            ? savedDashboardResult.value
+            : await getDashboardData(groupId);
 
         if (!cancelled) {
           setBatch(data.latestBatch);
@@ -84,6 +108,7 @@ export function DashboardPage() {
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setSyncing(false);
         }
       }
     }
@@ -116,12 +141,22 @@ export function DashboardPage() {
           </p>
         </div>
 
-        {loading ? (
+        {loading && !batch ? (
           <StatusBadge tone="neutral">Loading</StatusBadge>
+        ) : syncing ? (
+          <StatusBadge tone="blue">Syncing</StatusBadge>
         ) : batch ? (
           <StatusBadge tone="amber">{batch.status}</StatusBadge>
         ) : null}
       </div>
+
+      {syncing ? (
+        <div className="mt-6 flex items-center gap-3 rounded-2xl border border-ledger-blue/20 bg-ledger-blue/10 px-4 py-3 text-sm text-ledger-blue">
+          <RefreshCcw className="h-4 w-4 animate-spin" />
+          Refreshing dashboard data in the background. The numbers below are
+          the latest cached view until sync finishes.
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mt-6 rounded-2xl border border-ledger-red/20 bg-ledger-red/10 px-4 py-3 text-sm text-ledger-red">
@@ -141,7 +176,7 @@ export function DashboardPage() {
         <RiskMatrix
           summary={summary}
           issueCount={batch?.issue_count ?? 0}
-          loading={loading}
+          loading={loading && !summary}
         />
       </div>
 
@@ -152,7 +187,7 @@ export function DashboardPage() {
           helper="CSV rows already turned into expenses or payments"
           icon={CheckCircle2}
           tone="green"
-          loading={loading}
+          loading={loading && !batch}
         />
         <MetricCard
           label="Needs review"
@@ -160,7 +195,7 @@ export function DashboardPage() {
           helper="Rows waiting for approval, skip, or settlement handling"
           icon={AlertTriangle}
           tone="amber"
-          loading={loading}
+          loading={loading && !batch}
         />
         <MetricCard
           label="Blocked rows"
@@ -168,7 +203,7 @@ export function DashboardPage() {
           helper="Rows stopped because money would be unsafe to calculate"
           icon={FileWarning}
           tone="red"
-          loading={loading}
+          loading={loading && !batch}
         />
         <MetricCard
           label="Total issues"
@@ -176,7 +211,7 @@ export function DashboardPage() {
           helper="Every anomaly the importer surfaced"
           icon={BrainCircuit}
           tone="violet"
-          loading={loading}
+          loading={loading && !batch}
         />
       </div>
 
@@ -190,14 +225,14 @@ export function DashboardPage() {
           </div>
 
           <div className="mt-6 space-y-4">
-            {loading ? (
+            {loading && !summary ? (
               <LoadingState
                 title="Loading import health"
                 description="Checking the latest CSV import report."
               />
             ) : null}
 
-            {!loading && summary
+            {summary
               ? Object.entries(summary.issue_codes).map(([code, count]) => (
                   <div
                     key={code}
@@ -228,7 +263,7 @@ export function DashboardPage() {
           </div>
 
           <div className="mt-6 space-y-3">
-            {loading ? (
+            {loading && !balances ? (
               <LoadingState
                 title="Loading balances"
                 description="Calculating balances from committed ledger rows."
@@ -236,8 +271,7 @@ export function DashboardPage() {
               />
             ) : null}
 
-            {!loading &&
-              balances?.balances.map((line) => (
+            {balances?.balances.map((line) => (
                 <div
                   key={line.person}
                   className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
@@ -253,7 +287,7 @@ export function DashboardPage() {
                     Rs {line.balance_rupees}
                   </span>
                 </div>
-              ))}
+            ))}
 
             {!loading && !balances?.balances.length ? (
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-ledger-muted">

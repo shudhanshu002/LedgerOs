@@ -7,8 +7,15 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { getPageCache, setPageCache } from "../../lib/pageCache";
 import { getAuditLogs } from "../audit/auditApi";
 import { type AuditLog } from "./types";
+
+type RecentActivityCache = {
+  logs: AuditLog[];
+};
+
+const RECENT_ACTIVITY_CACHE_KEY = "dashboard-recent-activity";
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -33,22 +40,39 @@ function getActionIcon(action: string) {
 }
 
 export function RecentActivityPanel() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedPage = getPageCache<RecentActivityCache>(
+    RECENT_ACTIVITY_CACHE_KEY,
+  );
+  const [logs, setLogs] = useState<AuditLog[]>(cachedPage?.logs ?? []);
+  const [loading, setLoading] = useState(!cachedPage);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function loadLogs() {
-    setLoading(true);
+  async function loadLogs({ showLoading = true } = {}) {
+    if (showLoading) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
 
     try {
       const data = await getAuditLogs();
-      setLogs(data.slice(0, 6));
+      const nextLogs = data.slice(0, 6);
+
+      setLogs(nextLogs);
+      setPageCache<RecentActivityCache>(RECENT_ACTIVITY_CACHE_KEY, {
+        logs: nextLogs,
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadLogs().catch(console.error);
+    loadLogs({ showLoading: !cachedPage }).catch(console.error);
   }, []);
 
   return (
@@ -68,16 +92,17 @@ export function RecentActivityPanel() {
         </div>
 
         <button
-          onClick={() => loadLogs().catch(console.error)}
-          className="rounded-2xl border border-white/10 p-3 text-ledger-muted transition hover:bg-white/5 hover:text-white"
+          onClick={() => loadLogs({ showLoading: false }).catch(console.error)}
+          disabled={refreshing}
+          className="rounded-2xl border border-white/10 p-3 text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           aria-label="Refresh recent activity"
         >
-          <RefreshCcw className="h-4 w-4" />
+          <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </button>
       </div>
 
       <div className="mt-6 space-y-3">
-        {loading ? (
+        {loading && !logs.length ? (
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-ledger-muted">
             Loading recent activity...
           </div>

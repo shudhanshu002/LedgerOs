@@ -112,12 +112,15 @@ export function ImportCockpitPage() {
     }
 
     try {
-      const groups = await getGroups();
+      const [groups, loadedBatches] = await Promise.all([
+        getGroups(),
+        getImportBatches(),
+      ]);
       const resolvedGroupId = resolveActiveGroupId(groups, activeGroupId);
 
+      setBatches(loadedBatches);
       setActiveGroupId(resolvedGroupId);
 
-      const loadedBatches = await loadBatches();
       const batchId =
         loadedBatches.find((batch) => batch.id === preferredBatchId)?.id ??
         loadedBatches[0]?.id;

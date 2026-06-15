@@ -100,7 +100,13 @@ export function ImportCockpitPage() {
     }
   }
 
-  async function refreshAll({ showLoading = true } = {}) {
+  async function refreshAll({
+    showLoading = true,
+    preferredBatchId = selectedBatchId,
+  }: {
+    showLoading?: boolean;
+    preferredBatchId?: number | null;
+  } = {}) {
     if (showLoading) {
       setLoading(true);
     }
@@ -112,13 +118,17 @@ export function ImportCockpitPage() {
       setActiveGroupId(resolvedGroupId);
 
       const loadedBatches = await loadBatches();
-      const batchId = selectedBatchId ?? loadedBatches[0]?.id;
+      const batchId =
+        loadedBatches.find((batch) => batch.id === preferredBatchId)?.id ??
+        loadedBatches[0]?.id;
       let loadedIssues: ImportIssue[] = [];
 
       if (batchId) {
+        setSelectedBatchId(batchId);
         loadedIssues = await getImportIssues(batchId);
         setIssues(loadedIssues);
       } else {
+        setSelectedBatchId(null);
         setIssues([]);
       }
 
@@ -276,7 +286,10 @@ export function ImportCockpitPage() {
               setSelectedBatchId(batch.id);
               setMessage(uploadMessage);
               setCommitResult(null);
-              await refreshAll();
+              await refreshAll({
+                showLoading: false,
+                preferredBatchId: batch.id,
+              });
             }}
           />
 

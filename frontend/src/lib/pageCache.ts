@@ -7,7 +7,3 @@ export function getPageCache<T>(key: string) {
 export function setPageCache<T>(key: string, value: T) {
   pageCache.set(key, value);
 }
-
-export function clearPageCache(key: string) {
-  pageCache.delete(key);
-}

@@ -26,7 +26,7 @@ function humanizeFilename(filename: string) {
 
 type UploadCsvCardProps = {
   groupId: number | null;
-  onUploaded: (batch: ImportBatch, message: string) => void;
+  onUploaded: (batch: ImportBatch, message: string) => void | Promise<void>;
 };
 
 export function UploadCsvCard({
@@ -64,7 +64,7 @@ export function UploadCsvCard({
       const message = `Uploaded ${displayFilename}. Backend parsed ${batch.total_rows} rows and generated review status.`;
 
       setLocalMessage(message);
-      onUploaded(batch, message);
+      await onUploaded(batch, message);
     } catch {
       setLocalMessage("CSV upload failed. Check backend server and token.");
     } finally {
@@ -146,8 +146,8 @@ export function UploadCsvCard({
 
       <button
         onClick={handleUpload}
-        disabled={uploading}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition hover:scale-[1.01] disabled:opacity-60"
+        disabled={uploading || !groupId || !selectedFile}
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 font-semibold text-ledger-bg transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <UploadCloud className="h-4 w-4" />
         {uploading ? "Analyzing CSV..." : "Upload and analyze"}

@@ -48,4 +48,3 @@ export const endpoints = {
     list: "/api/audit/",
   },
 } as const;
-export const DEFAULT_IMPORT_BATCH_ID = 1;

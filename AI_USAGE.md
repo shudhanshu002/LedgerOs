@@ -37,27 +37,60 @@ This helped keep the backend relational instead of turning the CSV import into u
 
 ## Key Prompts
 
-Examples of prompts I used:
+## Examples of Prompts I Used
+
+Instead of using AI only for generating code, I used it to challenge my product decisions, database design, import policy, balance calculation, and frontend data-loading strategy. Some of the more useful prompts were:
 
 ```text
-Analyse the whole project at backend and frontend and see if it is aligned with the shared expenses assignment.
+Act as a senior backend engineer reviewing a shared-expense ledger system. The app imports a messy CSV before creating real expenses. Review the proposed flow: CSV row → ImportBatch → ImportRow → ImportIssue → review decision → committed Expense/Split/Settlement → balance calculation → audit log. Tell me what can go wrong if rows are committed directly without a review layer.
 ```
 
 ```text
-Make app properly working step by step.
+Design a relational database schema for a Splitwise-inspired app where group membership changes over time. A member may join or leave on specific dates, and expense validation must check whether the member was active on the expense date. Compare a simple many-to-many group-members table with a GroupMembership table containing joined_at and left_at.
 ```
 
 ```text
-Check all pages and fix data so every page loads live backend data.
+Given a flatmates expenses CSV with rent, groceries, utilities, Goa trip expenses, USD rows, duplicate rows, missing payer, missing currency, inactive members, settlement rows, negative amounts, zero amounts, and invalid percentage splits, define an anomaly-detection policy. For each anomaly, classify it as safe, needs review, or blocked, and explain whether it should be auto-fixed, reviewed by a user, or rejected.
 ```
 
 ```text
-Explain what approve, skip, and import as settlement should do for CSV issues.
+Review my balance-calculation approach for a shared expense ledger. For every committed expense, the payer should receive credit and every participant should be debited by their split share. Final balance should be paid minus owed, with settlements applied separately. Explain edge cases around rounding, percentage splits, share-based splits, refunds, and settlement rows.
 ```
 
 ```text
-Humanise the dashboard and documentation for the flatmates assignment.
+Explain how to generate settlement suggestions from final user balances. Positive balances mean users should receive money and negative balances mean users owe money. Design a simple greedy settlement algorithm and explain why it reduces the number of payments while preserving the same net balance.
 ```
+
+```text
+Review the import workflow from a product-management perspective. Aisha wants final who-pays-whom numbers, Rohan wants expense-level traceability, Priya wants USD handled correctly, Sam should not be charged before joining, and Meera wants approval before duplicates are removed. Tell me how these user requests should influence the importer, UI, database, and audit trail.
+```
+
+```text
+Design the frontend page-loading strategy for this app. The dashboard needs summary data, the import page needs batches and issues, the AI review page needs an import report, the balances page needs group balance data, and the audit page needs event logs. Suggest how to keep each page fast by loading only the data it needs, using page-level loading states, avoiding unnecessary repeated API calls, and keeping large issue lists separate from dashboard metrics.
+```
+
+```text
+Review the API boundary for this project. Which endpoints should be read-only for normal group members, and which actions should be admin-only? Consider CSV upload, issue review, import commit, group membership updates, settlement creation, balance viewing, and audit log viewing.
+```
+
+```text
+Act as an interviewer in the 45-minute live evaluation. Pick one anomaly from the CSV, such as USD_CONVERTED, INACTIVE_MEMBER, DUPLICATE_CONFLICT, SETTLEMENT_AS_EXPENSE, or INVALID_PERCENTAGE_TOTAL, and ask me to trace where it is detected, how it is stored, how it appears in the UI, and what happens during commit.
+```
+
+```text
+Review the documentation for this assignment. Make sure README.md explains setup and demo flow, SCOPE.md documents all anomalies and the database schema, DECISIONS.md explains tradeoffs and alternatives, and AI_USAGE.md honestly explains how AI helped, where it was wrong, and how I corrected it.
+```
+
+```text
+Check whether the app is too demo-hardcoded around one group. The CSV is not only a Goa trip; it includes the full flatmates ledger from February to April. Suggest a better product framing and explain whether this should be modeled as one evolving group or multiple groups.
+```
+
+```text
+Help me prepare for a live code walkthrough. Explain how I should describe the full lifecycle of one CSV row: parsing, normalization, anomaly detection, review decision, commit eligibility, expense creation, split creation, balance impact, and audit logging.
+```
+
+These prompts helped me use AI as a reviewer and design partner rather than just a code generator. I used the responses to check my own understanding, compare options, and then made the final implementation decisions myself.
+
 
 ## AI Mistakes Caught And Fixed
 

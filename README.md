@@ -1,10 +1,12 @@
-# LedgerOS - Shared Expenses App
+# LedgerOS - Shared Expenses Intelligence
 
-LedgerOS is a review-first shared expenses app built for the flatmates assignment. It takes the messy `expenses_export.csv` file exactly as provided, detects the risky rows, asks an admin to approve or skip decisions, and only then commits safe expenses and payments into a relational ledger.
+LedgerOS is a review-first shared expenses app built for the flatmates assignment. It imports the messy `expenses_export.csv` exactly as provided, detects risky rows, asks an admin to review decisions, and commits only approved financial movements into a relational ledger.
 
-The app is intentionally built around the story in the CSV: Aisha, Rohan, Priya, and Meera shared a flat from February, Dev joined for the Goa trip, Meera moved out after March, and Sam joined in April. That timeline matters because the app should not charge someone for an expense outside their membership period.
+The app is designed around the actual CSV story: Aisha, Rohan, Priya, and Meera shared a flat from February; Dev joined for a Goa trip; Meera moved out after March; Sam joined in April; some trip spending is in USD; and the spreadsheet contains duplicates, refunds, ambiguous dates, missing values, and repayments typed as expenses.
 
-## Live App
+![LedgerOS dashboard](docs/dashboard.png)
+
+## Live Links
 
 - Frontend: https://ledger-os-zeta.vercel.app
 - Backend API: https://ledgeros-lx4d.onrender.com
@@ -15,36 +17,47 @@ Demo login:
 Aisha / Password@123
 ```
 
-The seed command creates the demo users and the assignment workspace:
+## What To Look At First
 
-- Group: `Flatmates Ledger 2026`
-- Admin: `Aisha`
-- Active core members from 2026-02-01: Aisha, Rohan, Priya
-- Meera: joined 2026-02-01, left 2026-03-29
-- Dev: joined 2026-02-08, left 2026-03-14 for the trip period
-- Sam: joined 2026-04-08
+1. **Command Center**: high-level import health, live balance snapshot, and recent audit evidence.
+2. **Groups**: date-aware membership timeline. This is what stops Sam from being charged for March and Meera from being charged after moving out.
+3. **Import Cockpit**: upload CSV, inspect anomalies, approve/skip/convert rows, and commit only safe rows.
+4. **Expenses**: committed expenses and recorded payments. Imported rows are traceable back to CSV row numbers.
+5. **AI Review**: deterministic human-readable explanations for each anomaly code.
+6. **Balances**: who owes whom, suggested settlements, and a per-person ledger trace.
+7. **Audit Trail**: evidence of uploads, review decisions, and commits.
 
-## What The App Does
+## Product Behavior
 
-- Login with JWT authentication.
-- Create and manage groups.
-- Store membership timelines with join and leave dates.
-- Create manual expenses and record payments.
-- Import `expenses_export.csv` without editing it first.
-- Detect CSV anomalies and show them in a review queue.
-- Let an admin approve, skip, reject, keep, or import a row as a settlement.
-- Commit reviewed rows into expenses or settlements.
-- Calculate balances from committed ledger rows only.
-- Show a traceable breakdown for each person's balance.
-- Suggest who should pay whom to settle up.
-- Record upload, review, commit, expense, and payment actions in the audit trail.
+- Uploading a CSV never directly changes balances.
+- Import creates `ImportBatch`, `ImportRow`, and `ImportIssue` records.
+- Rows with unresolved issues stay blocked or under review.
+- Approved valid rows can be committed into `Expense` or `Settlement` records.
+- Balances are calculated only from committed ledger rows.
+- Every balance number can be traced to expense paid, share owed, settlement paid, or settlement received entries.
+
+## Assignment Requirements Covered
+
+| Requirement | Where implemented |
+| --- | --- |
+| Login module | JWT login with demo user Aisha |
+| Create/manage groups | Groups page and `GroupMembership` model |
+| Membership changes over time | `joined_at` and `left_at` on memberships |
+| Create/manage expenses | Expenses page and DRF expense endpoints |
+| Split types in CSV | Equal, exact/unequal, percentage, share |
+| Balances and summaries | Balances page and backend balance calculator |
+| Settle debts/payments | `Settlement` model and payment form |
+| Import CSV exactly as provided | Import Cockpit upload flow |
+| Detect/surface anomalies | Import issues, AI Review, review queue |
+| Relational DB only | Django models on PostgreSQL/SQLite |
 
 ## Stack
 
 - Backend: Django, Django REST Framework, SimpleJWT
-- Database: PostgreSQL for deployment, SQLite fallback for local development
+- Database: PostgreSQL on Neon for deployment; SQLite works for local development/tests
 - Frontend: React, TypeScript, Vite, Tailwind CSS
-- Deployment: Render backend, Vercel frontend, Neon PostgreSQL
+- Deployment: Render backend, Vercel frontend
+- Planning aid: diagrams.net/draw.io for relational structure visualization
 
 ## Local Setup
 
@@ -57,13 +70,25 @@ cd backend
 .\.venv\Scripts\python.exe manage.py runserver
 ```
 
-`seed_demo` is safe to run more than once. It updates the demo users, makes Aisha the group admin, and reuses an older `Goa Trip 2026` seed group by renaming it to `Flatmates Ledger 2026`.
+`seed_demo` is safe to run more than once. It creates or updates demo users, makes Aisha an admin, and creates the `Flatmates Ledger 2026` workspace.
 
-If `DATABASE_URL` points to a remote database and you want local SQLite for development:
+Demo membership timeline:
+
+| Person | Role | Joined | Left |
+| --- | --- | --- | --- |
+| Aisha | Admin | 2026-02-01 | Active |
+| Rohan | Member | 2026-02-01 | Active |
+| Priya | Member | 2026-02-01 | Active |
+| Meera | Member | 2026-02-01 | 2026-03-29 |
+| Dev | Member | 2026-02-08 | 2026-03-14 |
+| Sam | Member | 2026-04-08 | Active |
+
+To force local SQLite:
 
 ```powershell
 $env:DATABASE_URL='sqlite:///db.sqlite3'
 .\.venv\Scripts\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py seed_demo
 ```
 
 ### Frontend
@@ -74,26 +99,25 @@ npm install
 npm run dev
 ```
 
-The frontend uses `http://127.0.0.1:8000` by default. For deployment or another backend URL, set:
+For deployed or remote backend usage:
 
 ```text
 VITE_API_BASE_URL=https://ledgeros-lx4d.onrender.com
 ```
 
-## Main Demo Flow
+## Demo Script
 
 1. Login as Aisha.
-2. Open Groups and confirm the membership timeline.
+2. Open Groups and point out membership dates.
 3. Open Import Cockpit and upload `backend/expenses_export.csv`.
-4. Review anomalies and decide whether to approve, skip, keep, reject, or import as settlement.
-5. Commit safe rows.
-6. Open Expenses to see committed expenses and payments.
-7. Open Balances to see net positions, settlement suggestions, and per-person trace.
-8. Open Audit Trail to see evidence of upload, review, and commit actions.
+4. Show that upload creates a review report, not expenses.
+5. Approve/skip/convert one issue and show the row status changing.
+6. Commit valid rows.
+7. Open Expenses and trace a committed row back to its CSV row number.
+8. Open Balances and walk through Aisha or Rohan by hand.
+9. Open Audit Trail and show evidence of upload/review/commit.
 
 ## Deployment Notes
-
-Backend is deployed on Render and frontend is deployed on Vercel.
 
 Render backend environment:
 
@@ -111,17 +135,13 @@ Vercel frontend environment:
 VITE_API_BASE_URL=https://ledgeros-lx4d.onrender.com
 ```
 
-After a fresh Render database migration, run this once in the Render shell:
+The frontend includes `frontend/vercel.json` so direct links like `/balances` and unknown routes are handled by the React router instead of Vercel's static 404.
+
+After a fresh Render database migration, run:
 
 ```bash
 python manage.py seed_demo
 ```
-
-## Important Documents
-
-- `SCOPE.md`: anomaly log, import policy, and schema.
-- `DECISIONS.md`: product and engineering decisions.
-- `AI_USAGE.md`: AI tools used and mistakes caught.
 
 ## Verification
 
@@ -142,5 +162,12 @@ npm run build
 
 Current verified result:
 
-- Backend: 14 tests passing
-- Frontend: production build passing
+- Backend tests: 14 passing
+- Frontend production build: passing
+- Live ledger balances net to zero after removing manual test rows
+
+## Required Documents
+
+- `SCOPE.md`: anomaly log, import policy, and schema.
+- `DECISIONS.md`: product and engineering decision log.
+- `AI_USAGE.md`: AI tools used, prompts, mistakes caught, and corrections made.

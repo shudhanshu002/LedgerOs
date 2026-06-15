@@ -1,48 +1,50 @@
 # Decision Log
 
-This file records the product and engineering decisions I expect to explain in a live review. The main principle was simple: do not let messy spreadsheet data silently become money.
+This file records the product and engineering decisions behind LedgerOS. I wrote it so I can explain the project in a live review without hiding behind the UI.
 
-## 1. Review Before Commit
+The guiding principle: money should never change silently.
 
-Options considered:
-
-- Import every CSV row immediately and clean later.
-- Stop the entire import when the first bad row appears.
-- Store the import as a review batch and commit only safe rows.
-
-Decision: store a review batch first, then commit. This protects balances, gives Meera approval control, and still lets valid rows move forward.
-
-## 2. Keep Raw And Normalized Row Data
+## 1. Review Batch Before Ledger Commit
 
 Options considered:
 
-- Store only cleaned data.
-- Store only raw CSV data.
-- Store both raw and normalized data.
+- Import every CSV row immediately.
+- Stop the whole import on the first bad row.
+- Store a review batch, then commit only safe rows.
 
-Decision: store both. Raw data proves what came from the CSV. Normalized data shows what the importer understood. This makes anomalies explainable.
+Decision: store `ImportBatch`, `ImportRow`, and `ImportIssue` first. Commit happens later. This gives Meera approval control and prevents bad spreadsheet rows from corrupting balances.
 
-## 3. Settlements Are Not Expenses
-
-Options considered:
-
-- Store repayments as negative expenses.
-- Store repayments as one-person expenses.
-- Store repayments in a dedicated settlement table.
-
-Decision: use a dedicated `Settlement` model. A payment between two people should reduce balances, but it should not behave like a shared expense with splits.
-
-## 4. Use Integer Paise For Ledger Math
+## 2. Preserve Raw And Normalized CSV Rows
 
 Options considered:
 
-- Store rupees as floats.
-- Use decimals everywhere.
-- Convert money to integer paise for ledger calculations.
+- Store only raw CSV.
+- Store only cleaned values.
+- Store both raw and normalized values.
 
-Decision: use integer paise for committed ledger amounts. It avoids floating-point errors and makes rounding easier to test and explain.
+Decision: store both. Raw data proves what was uploaded; normalized data shows what the app interpreted. This makes row-level tracing possible.
 
-## 5. Use A Fixed USD Rate
+## 3. Model Settlements Separately
+
+Options considered:
+
+- Negative expense.
+- One-person expense.
+- Dedicated settlement table.
+
+Decision: use `Settlement`. A repayment is a direct transfer between two people. It should affect balances but should not create expense splits.
+
+## 4. Use Integer Paise For Money
+
+Options considered:
+
+- Floating point rupees.
+- Decimal values throughout all calculations.
+- Integer paise in committed ledger math.
+
+Decision: convert committed amounts to integer paise. It avoids floating-point drift and makes balance traces exact.
+
+## 5. Fixed USD Conversion Rate
 
 Options considered:
 
@@ -50,64 +52,94 @@ Options considered:
 - Fetch live exchange rates.
 - Use a configured fixed rate.
 
-Decision: use `USD_TO_INR_RATE`. The assignment is about explainability, not market-rate accuracy. A fixed rate makes old imports reproducible.
+Decision: use `USD_TO_INR_RATE`. The assignment tests explainability and repeatability. A fixed rate is easier to audit than a changing market rate.
 
-## 6. Membership Changes Are Date-Based
+## 6. Date-Aware Membership
 
 Options considered:
 
-- Keep only current members.
-- Use a simple many-to-many group membership.
-- Store join and leave dates.
+- Store only current members.
+- Use a basic many-to-many table.
+- Store membership periods.
 
-Decision: store membership periods. This is required for Sam joining in April, Meera leaving after March, and Dev appearing only around the trip.
+Decision: use `GroupMembership` with `joined_at` and `left_at`. This directly answers Sam's requirement and protects historical balances.
 
-## 7. Duplicates Need Human Approval
+## 7. Duplicate Rows Require Human Decision
 
 Options considered:
 
 - Automatically delete duplicates.
-- Keep every duplicate.
-- Flag duplicates and ask the reviewer.
+- Keep all duplicates.
+- Detect duplicates and ask.
 
-Decision: flag duplicates and require a decision. The app should not delete or change money rows without approval.
+Decision: detect and surface duplicates. The app can recommend, but the reviewer decides whether to keep or skip.
 
-## 8. Support Every Split Type In The CSV
+## 8. Support CSV Split Types Explicitly
 
 Options considered:
 
-- Implement equal split only.
+- Equal split only.
 - Add split types later.
-- Implement all split types found in the assignment CSV.
+- Implement every split type in the assignment CSV.
 
-Decision: implement equal, exact/unequal, percentage, and share splits. This keeps the app aligned with the provided data instead of forcing the CSV into one split model.
+Decision: implement equal, exact/unequal, percentage, and share splits. A CSV import app should respect the source data instead of forcing everything into equal splits.
 
-## 9. Rounding Rule
+## 9. Rounding Policy
 
 Options considered:
 
+- Floor values.
 - Banker's rounding.
-- Floor amounts.
-- Round half up.
+- Round half up to paise.
 
-Decision: round half up to paise. It is predictable for users and straightforward to explain when tracing a balance.
+Decision: round half up. It is predictable for users and straightforward to explain when a split has remainders.
 
-## 10. Audit Important Actions
+## 10. Audit Trail
 
 Options considered:
 
-- Rely on database timestamps only.
-- Log only import uploads.
+- Rely on model timestamps.
+- Log only uploads.
 - Log uploads, review decisions, commits, manual expenses, and settlements.
 
-Decision: log the important financial actions. This gives the app an evidence trail and helps answer "who approved this?" during review.
+Decision: record important financial actions in `AuditLog`. The reviewer should be able to ask who uploaded, who approved, and when a commit happened.
 
-## 11. Deterministic AI Review
+## 11. Deterministic AI Review Layer
 
 Options considered:
 
 - Call an external LLM during demo.
-- Do not provide explanation text.
-- Generate deterministic explanation text from known issue codes.
+- Avoid explanation text.
+- Generate deterministic explanations from issue codes.
 
-Decision: use deterministic explanations. It behaves like an AI review layer for the user, but it stays stable and testable during deployment and live evaluation.
+Decision: use deterministic AI-style explanations. This gives a helpful review layer without risking live LLM latency, cost, or non-repeatable output during evaluation.
+
+## 12. Keep UI Fast With Cached Data And Background Sync
+
+Options considered:
+
+- Always block pages until fresh API data loads.
+- Show stale data forever.
+- Show cached data immediately, then sync in the background.
+
+Decision: use short-lived page caching. Render/Neon can be slow on first response, so cached data keeps the app usable while the backend refreshes.
+
+## 13. Vercel SPA Rewrite
+
+Options considered:
+
+- Use hash routing.
+- Let Vercel return 404 for deep links.
+- Configure Vercel to serve `index.html` for frontend paths.
+
+Decision: add `frontend/vercel.json` rewrite. React Router should handle app routes and custom not-found pages.
+
+## 14. Demo Data Over Generic Sample Data
+
+Options considered:
+
+- Use generic users and fake expenses.
+- Seed only users.
+- Seed the assignment group, timeline, and CSV-ready workspace.
+
+Decision: seed the real assignment story. It makes the app easier to evaluate because every screen maps back to the provided scenario.

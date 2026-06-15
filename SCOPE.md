@@ -1,79 +1,121 @@
 # Scope, Anomaly Log, and Schema
 
-This app is scoped around one real workflow: import the flatmates' messy CSV, show every risky row, let an admin decide what to do, then commit only safe financial movements into the ledger.
+LedgerOS is scoped around one financial workflow: take the provided `expenses_export.csv`, preserve what was uploaded, explain every risky row, let an admin decide what to do, and commit only safe ledger movements.
 
-The CSV is never edited by hand before import. The importer stores the raw row, a normalized interpretation, and any issues it found. Expenses and settlements are created only during the commit step.
+The app does not edit the CSV by hand. Each uploaded row is stored as raw data plus normalized data. That is important for the live review because an evaluator can point at a CSV anomaly and ask exactly what the importer did with it.
+
+## In Scope
+
+- JWT login and protected APIs.
+- Groups with date-aware membership.
+- Manual expenses and recorded payments.
+- CSV upload and anomaly detection.
+- Review decisions: approve, keep row, skip row, reject, fix later, import as settlement.
+- Commit reviewed rows into expenses or settlements.
+- Balance calculation and settlement suggestions from committed rows only.
+- Audit trail for upload, review, and commit actions.
+
+## Out Of Scope For This Build
+
+- A full inline editor for rewriting bad CSV rows in the UI.
+- Live exchange-rate fetching.
+- Multi-currency ledgers beyond converting supported CSV currencies into INR paise.
+- Automatic duplicate deletion without user approval.
 
 ## Import Policy
 
-- Upload is non-destructive. It creates an `ImportBatch`, `ImportRow`, and `ImportIssue` records.
-- Valid rows can be committed.
-- Warning and info rows need review when the importer made an assumption.
-- Error rows cannot be committed until they are resolved, approved by policy, skipped, or converted to a settlement where allowed.
-- Skipping or rejecting a row closes the row's open issues so the review queue does not keep asking about a row the admin already removed.
-- The app keeps the original CSV row for traceability even when a normalized value is used later.
+| Stage | Policy |
+| --- | --- |
+| Upload | Non-destructive. Creates import batch, rows, issues, and audit evidence. |
+| Detection | Every risky assumption becomes an explicit issue code. |
+| Review | Admin must approve, skip, reject, keep, or convert where needed. |
+| Commit | Only valid/reviewed rows become expenses or settlements. |
+| Traceability | Raw CSV row, normalized row, issue decisions, and committed ledger row remain connected. |
 
 ## Detected CSV Problems
 
-| Code | What the app found | Policy |
-| --- | --- | --- |
-| `AMBIGUOUS_DATE` | Dates such as `04/05/2026` can be read in more than one way. | Flag for review. The parsed date is used only after the reviewer accepts the interpretation. |
-| `INVALID_DATE` | `Mar 14` has no year. | Block the row. The importer does not silently guess a year. |
-| `MISSING_PAYER` | `House cleaning supplies` has no payer. | Block until a payer is supplied in a future edit flow or the row is skipped. |
-| `UNKNOWN_MEMBER` | `Dev's friend Kabir` is not a known group user. | Block until mapped/created in a future flow or skipped. |
-| `MISSING_CURRENCY` | One groceries row has an empty currency field. | Block because the app cannot safely convert or store money without a currency. |
-| `USD_CONVERTED` | Goa trip rows are in USD. | Convert using configured `USD_TO_INR_RATE`, but surface the assumption for admin review. |
-| `AMOUNT_PRECISION` | `899.995` has more than two decimal places. | Require review before rounding to paise. |
-| `NEGATIVE_AMOUNT` | `Parasailing refund` is a negative USD amount. | Treat as a refund only after review; normal expense commit blocks non-positive expenses. |
-| `ZERO_AMOUNT` | Swiggy row has amount `0`. | Block because a zero-value expense should not change balances. |
-| `SETTLEMENT_AS_EXPENSE` | Rows such as `Rohan paid Aisha back` and `Sam deposit share` are repayments, not shared expenses. | Allow admin to import the row as a `Settlement` instead of an `Expense`. |
-| `POSSIBLE_DUPLICATE` | Same or very similar spending appears more than once. | Surface both rows and require the reviewer to keep or skip intentionally. |
-| `DUPLICATE_CONFLICT` | Similar rows have conflicting amounts, such as the Thalassa dinner entries. | Block until the reviewer chooses how to handle the conflict. |
-| `INACTIVE_MEMBER` | A person appears outside their membership period. | Flag for review. This protects Sam from March expenses and Meera from post-move-out rows. |
-| `INVALID_PERCENTAGE_TOTAL` | Percentage split does not add to 100. | Block until fixed or skipped. |
-| `SPLIT_DETAILS_WITH_EQUAL` | Row says equal split but also includes share details. | Flag for review and keep the backend policy explicit. |
-| `INVALID_SPLIT_TYPE` | Split type is missing or not supported. | Block unless the row can be handled as a settlement. |
-| `INVALID_EXACT_TOTAL` | Exact/unequal split details do not match the total. | Block because the owed shares would not reconcile. |
-| `INVALID_SHARE_VALUE` | Share split contains invalid share values. | Block until corrected or skipped. |
-| `MISSING_PARTICIPANTS` | No valid participants can be found for a split. | Block because the app cannot calculate owed shares. |
+The supplied file produces at least these issue types. Counts can change after review decisions because row statuses move, but the codes remain the same.
 
-## Database Schema
+| Code | Example from CSV | Why it matters | Handling policy |
+| --- | --- | --- | --- |
+| `AMBIGUOUS_DATE` | `04/05/2026`, `01/03/2026` | Date format can change who was active. | Surface for review before trusting the parsed date. |
+| `INVALID_DATE` | `Mar 14` | Missing year. | Block; no silent guess. |
+| `MISSING_PAYER` | House cleaning supplies | Balance cannot credit a payer. | Block until fixed in a future edit flow or skipped. |
+| `UNKNOWN_MEMBER` | `Dev's friend Kabir` | Person is not a known group member. | Block until mapped/created or skipped. |
+| `MISSING_CURRENCY` | Groceries row with blank currency | Money cannot be safely interpreted. | Block. |
+| `USD_CONVERTED` | Goa villa, beach lunch, parasailing | Spreadsheet treats USD like INR. | Convert using configured rate and show the assumption. |
+| `AMOUNT_PRECISION` | `899.995` | More than two decimal places. | Flag before rounding to paise. |
+| `NEGATIVE_AMOUNT` | Parasailing refund | Could be a refund, not a normal expense. | Flag/block from normal expense commit until reviewed. |
+| `ZERO_AMOUNT` | Swiggy row | Zero expense should not change balances. | Block. |
+| `SETTLEMENT_AS_EXPENSE` | `Rohan paid Aisha back`, Sam deposit | Payment is not a shared expense. | Allow admin to import as settlement. |
+| `POSSIBLE_DUPLICATE` | Marina Bites dinner repeated | Duplicate money can overcharge users. | Ask reviewer to keep or skip intentionally. |
+| `DUPLICATE_CONFLICT` | Thalassa dinner with different amounts | Similar expense, conflicting amount. | Block until reviewer chooses. |
+| `INACTIVE_MEMBER` | Meera after leaving, Sam before joining, Dev outside trip | Membership timeline affects who owes. | Surface; reviewer decides if row is intentional. |
+| `INVALID_PERCENTAGE_TOTAL` | Percent split not adding to 100 | Owed shares would not reconcile. | Block. |
+| `SPLIT_DETAILS_WITH_EQUAL` | Equal split with share details | Conflicting instructions. | Flag and document backend policy. |
+| `INVALID_SPLIT_TYPE` | Missing/unsupported split type | Split cannot be calculated. | Block unless settlement policy applies. |
+| `INVALID_EXACT_TOTAL` | Exact values do not equal total | Ledger would not balance. | Block. |
+| `INVALID_SHARE_VALUE` | Bad share values | Weighted split cannot be trusted. | Block. |
+| `MISSING_PARTICIPANTS` | No valid split members | No one can be charged. | Block. |
 
-Core tables:
+## Schema Overview
 
-- `auth_user`: Django users. Demo users are Aisha, Rohan, Priya, Meera, Dev, and Sam.
-- `groups_group`: a shared expense group.
-- `groups_groupmembership`: a user's role and membership period in a group.
-- `expenses_expense`: committed shared expense.
-- `expenses_expensesplit`: per-person owed amount for an expense.
-- `expenses_settlement`: a payment from one person to another.
-- `imports_importbatch`: one CSV upload attempt.
-- `imports_importrow`: raw and normalized row data.
-- `imports_importissue`: anomaly detected during import.
-- `imports_importdecision`: admin decision for an issue.
-- `audit_auditlog`: trace of uploads, decisions, commits, manual expenses, and payments.
+Core relational tables:
 
-Important constraints:
+| Table | Purpose |
+| --- | --- |
+| `auth_user` | Login users: Aisha, Rohan, Priya, Meera, Dev, Sam. |
+| `groups_group` | Shared expense workspace. |
+| `groups_groupmembership` | Role plus `joined_at`/`left_at` timeline. |
+| `expenses_expense` | Committed shared expense. |
+| `expenses_expensesplit` | Per-person owed share for an expense. |
+| `expenses_settlement` | Direct payment from one user to another. |
+| `imports_importbatch` | One uploaded CSV file. |
+| `imports_importrow` | Raw row, normalized row, row hash, row status. |
+| `imports_importissue` | One detected anomaly. |
+| `imports_importdecision` | Reviewer decision with before/after state. |
+| `audit_auditlog` | Operational evidence for financial actions. |
 
-- One split per user per expense.
-- One CSV row number per import batch.
-- Membership is date-aware through `joined_at` and `left_at`.
-- Expenses and settlements are separate financial movements.
+## Relationship Sketch
 
-## Relational Structure
-
-The relational structure was planned with diagrams.net/draw.io and then implemented in Django models. The key relationship is:
+The relationship structure was planned in diagrams.net/draw.io before implementation:
 
 ```text
-User -> GroupMembership -> Group
-Group -> Expense -> ExpenseSplit -> User
-Group -> Settlement -> User
-Group -> ImportBatch -> ImportRow -> ImportIssue -> ImportDecision
-AuditLog records important actions across these entities
+User
+  -> GroupMembership
+  -> Group
+       -> Expense
+            -> ExpenseSplit -> User
+       -> Settlement
+            -> paid_by User
+            -> paid_to User
+       -> ImportBatch
+            -> ImportRow
+                 -> ImportIssue
+                      -> ImportDecision
+       -> AuditLog evidence through action metadata
 ```
 
-## Current Known Limitations
+## Balance Rule
 
-- The app can approve, skip, reject, keep, and convert rows to settlements, but it does not yet provide a full inline row editor for fixing blocked row values.
-- USD conversion uses a fixed configured rate for reproducibility.
-- The demo is built around the supplied assignment CSV and flatmates, though the schema supports more groups and users.
+For each person:
+
+```text
+balance = expenses paid
+        - expense shares owed
+        + settlements paid
+        - settlements received
+```
+
+Positive balance means the person should receive money. Negative balance means the person owes money. The balance engine keeps the group total at zero.
+
+## Current Demo State
+
+The seeded/live demo currently represents a partially reviewed import:
+
+- Some CSV rows are committed into expenses.
+- Some rows remain blocked or need review.
+- One legitimate recorded payment remains: Rohan paid Aisha.
+- Manual test rows were removed.
+
+This is intentional for the assignment: the reviewer can see committed data and still inspect unresolved anomalies.

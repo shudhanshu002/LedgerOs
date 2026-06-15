@@ -32,6 +32,20 @@ The app does not edit the CSV by hand. Each uploaded row is stored as raw data p
 | Commit | Only valid/reviewed rows become expenses or settlements. |
 | Traceability | Raw CSV row, normalized row, issue decisions, and committed ledger row remain connected. |
 
+## Import Report
+
+Each upload can produce a downloadable JSON import report from the app.
+
+UI location:
+
+`Import Cockpit -> Import report -> Download JSON report`
+
+API endpoint:
+
+`GET /api/imports/{batch_id}/report/`
+
+The report includes every anomaly detected and the action taken or `PENDING_REVIEW` if no reviewer decision has been made yet.
+
 ## Detected CSV Problems
 
 The supplied file produces at least these issue types. Counts can change after review decisions because row statuses move, but the codes remain the same.

@@ -166,6 +166,24 @@ Current verified result:
 - Frontend production build: passing
 - Live ledger balances net to zero after removing manual test rows
 
+## Import Report Deliverable
+
+The app produces an import report for each uploaded CSV batch.
+
+In the UI:
+
+`Import Cockpit -> Import report -> Download JSON report`
+
+API endpoint:
+
+`GET /api/imports/{batch_id}/report/`
+
+For the seeded demo batch:
+
+`GET /api/imports/1/report/`
+
+The report lists every anomaly detected, CSV row number, severity, policy, suggested action, current row/issue status, and reviewer action taken.
+
 ## Required Documents
 
 - `SCOPE.md`: anomaly log, import policy, and schema.

@@ -64,6 +64,7 @@ export function ImportCockpitPage() {
   const [loading, setLoading] = useState(!cachedPage);
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState(false);
   const [message, setMessage] = useState("");
   const [commitResult, setCommitResult] = useState<ImportCommitResult | null>(
     null,
@@ -200,6 +201,9 @@ export function ImportCockpitPage() {
   async function handleDownloadReport() {
     if (!selectedBatchId) return;
 
+    setDownloadingReport(true);
+    setMessage("Preparing import report download...");
+
     try {
       const report = await getImportReport(selectedBatchId);
       const blob = new Blob([JSON.stringify(report, null, 2)], {
@@ -218,6 +222,8 @@ export function ImportCockpitPage() {
     } catch (error) {
       console.error(error);
       setMessage("Could not download import report.");
+    } finally {
+      setDownloadingReport(false);
     }
   }
 
@@ -342,11 +348,15 @@ export function ImportCockpitPage() {
 
             <button
               onClick={handleDownloadReport}
-              disabled={!selectedBatchId}
+              disabled={!selectedBatchId || downloadingReport}
               className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-ledger-muted transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <FileDown className="h-4 w-4" />
-              Download JSON report
+              <FileDown
+                className={`h-4 w-4 ${downloadingReport ? "animate-bounce" : ""}`}
+              />
+              {downloadingReport
+                ? "Preparing report..."
+                : "Download JSON report"}
             </button>
           </div>
 

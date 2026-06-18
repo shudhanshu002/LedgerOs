@@ -25,7 +25,7 @@ class ExpenseSplitSerializer(serializers.ModelSerializer):
     """
     Read serializer for individual expense splits.
 
-    This helps Rohan's requirement:
+    Used by the balances UI:
     "Show exactly which expenses make up my balance."
     """
 

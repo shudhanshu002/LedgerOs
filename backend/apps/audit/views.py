@@ -19,7 +19,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     - who committed import batches
     - who created expenses/settlements
 
-    Important:
+    Note:
     This API is read-only.
     Audit logs should not be edited from frontend.
     """
@@ -30,7 +30,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         """
         Users can see audit evidence for groups they can access, even if
-        another admin performed the action. This is important for live review:
+        another admin performed the action. Worth keeping for review and debugging:
         Anita/Aisha should both be able to inspect how a group import changed.
         """
 

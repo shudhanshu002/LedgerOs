@@ -8,7 +8,7 @@ class AuditLogAdmin(admin.ModelAdmin):
     """
     Admin view for audit logs.
 
-    Audit logs are useful during testing/live review because they show:
+    Audit logs are useful during testing/review and debugging because they show:
     - who uploaded a CSV
     - who approved/rejected an import issue
     - who skipped a duplicate row

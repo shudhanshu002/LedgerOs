@@ -5,11 +5,9 @@ from apps.expenses.models import Expense, Settlement
 
 def calculate_group_balances(group_id: int) -> dict:
     """
-    Calculates group balances in paise.
+    Calculate group balances in paise.
 
-    Meaning:
-    - Positive balance: person should receive money.
-    - Negative balance: person owes money.
+    Positive balances should receive money. Negative balances owe money.
 
     Formula:
     balance = total_paid_for_expenses
@@ -17,9 +15,7 @@ def calculate_group_balances(group_id: int) -> dict:
               - settlements_received
               + settlements_paid
 
-    Why settlements_received is negative:
-    If Rohan was owed ₹2300 and Meera already paid him ₹2300,
-    Rohan's receivable should reduce.
+    Received settlements reduce a person's remaining receivable.
     """
 
     balances = defaultdict(int)
@@ -76,7 +72,7 @@ def calculate_group_balances(group_id: int) -> dict:
         paid_by_name = settlement.paid_by.username
         paid_to_name = settlement.paid_to.username
 
-        # Person who paid settlement has reduced their debt.
+        # Paying a settlement reduces the payer's debt.
         balances[paid_by_name] += settlement.amount_paise
 
         breakdown[paid_by_name].append(
@@ -90,7 +86,7 @@ def calculate_group_balances(group_id: int) -> dict:
             }
         )
 
-        # Person who received settlement has reduced their receivable.
+        # Receiving a settlement reduces the receiver's receivable.
         balances[paid_to_name] -= settlement.amount_paise
 
         breakdown[paid_to_name].append(
@@ -115,27 +111,7 @@ def calculate_group_balances(group_id: int) -> dict:
 
 def simplify_debts(balances: dict) -> list[dict]:
     """
-    Converts raw balances into simple payment suggestions.
-
-    Example:
-
-    balances:
-    {
-      "Aisha": 75000,
-      "Rohan": -25000,
-      "Priya": -25000,
-      "Meera": -25000
-    }
-
-    result:
-    [
-      {"from": "Rohan", "to": "Aisha", "amount_paise": 25000},
-      {"from": "Priya", "to": "Aisha", "amount_paise": 25000},
-      {"from": "Meera", "to": "Aisha", "amount_paise": 25000}
-    ]
-
-    This satisfies Aisha's requirement:
-    "Who pays whom, how much, done."
+    Turn raw balances into simple "who pays whom" suggestions.
     """
 
     debtors = []

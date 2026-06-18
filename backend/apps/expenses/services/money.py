@@ -9,12 +9,7 @@ class MoneyError(ValueError):
 
 def parse_decimal_amount(value) -> Decimal:
     """
-    Converts string/number amount into Decimal safely.
-
-    Examples:
-    "1200"     -> Decimal("1200")
-    "1200.50"  -> Decimal("1200.50")
-    "₹1,200"   -> Decimal("1200")
+    Parse a user or CSV amount into Decimal.
     """
 
     if value is None:
@@ -39,10 +34,9 @@ def parse_decimal_amount(value) -> Decimal:
 
 def rupees_to_paise(amount) -> int:
     """
-    Converts INR rupees to integer paise.
+    Convert INR rupees to integer paise.
 
-    We use ROUND_HALF_UP because it is easier to explain
-    and matches common financial rounding expectations.
+    ROUND_HALF_UP matches the rounding people expect for money.
     """
 
     decimal_amount = parse_decimal_amount(amount)
@@ -57,7 +51,7 @@ def rupees_to_paise(amount) -> int:
 
 def paise_to_rupees(paise: int) -> Decimal:
     """
-    Converts integer paise back to rupees for display.
+    Convert integer paise back to rupees for display.
     """
 
     return (Decimal(paise) / Decimal("100")).quantize(
@@ -68,14 +62,7 @@ def paise_to_rupees(paise: int) -> Decimal:
 
 def usd_to_inr_paise(amount) -> int:
     """
-    Converts USD amount to INR paise using fixed configured rate.
-
-    Assignment reason:
-    Priya said the sheet pretends dollar is rupee.
-    So the importer must detect USD and convert it deliberately.
-
-    Current policy:
-    1 USD = value of USD_TO_INR_RATE in .env
+    Convert USD to INR paise using the configured fixed rate.
     """
 
     decimal_amount = parse_decimal_amount(amount)
@@ -88,13 +75,7 @@ def usd_to_inr_paise(amount) -> int:
 
 def to_ledger_paise(amount, currency: str) -> int:
     """
-    Converts any supported currency into INR paise.
-
-    INR:
-        1200 -> 120000 paise
-
-    USD:
-        10 USD with rate 83 -> 83000 paise
+    Convert any supported currency into the ledger's INR paise value.
     """
 
     normalized_currency = (currency or "INR").strip().upper()
@@ -110,18 +91,7 @@ def to_ledger_paise(amount, currency: str) -> int:
 
 def allocate_remainder(total_paise: int, count: int) -> list[int]:
     """
-    Splits total_paise equally across count people.
-
-    Important:
-    Integer division may leave a remainder.
-
-    Example:
-    100 paise split among 3:
-    [34, 33, 33]
-
-    Policy:
-    Give one extra paise to the first N participants.
-    This is deterministic and documented.
+    Split paise evenly and assign any leftover paise from the front.
     """
 
     if count <= 0:

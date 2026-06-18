@@ -17,9 +17,9 @@ from apps.groups.serializers import (
 
 def user_is_group_admin(group: Group, user: User) -> bool:
     """
-    Returns True if the user is an ADMIN member of the group.
+    Return true when the user is an ADMIN member of the group.
 
-    This is used for actions that change group structure:
+    Used for actions that change group structure:
     - adding members
     - editing membership dates
     - removing members
@@ -66,9 +66,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def perform_create(self, serializer):
         """
-        When a user creates a group, they automatically become ADMIN.
-
-        This prevents a group from existing without any admin.
+        Make the creator the first admin for a new group.
         """
 
         group = serializer.save(created_by=self.request.user)
@@ -99,16 +97,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         """
         Add a member to a group with a join date.
 
-        Request body example:
-
-        {
-          "user": 6,
-          "role": "MEMBER",
-          "joined_at": "2024-04-15",
-          "left_at": null
-        }
-
-        This is important because Sam joined mid-April.
+        The join date matters for later expense eligibility checks.
         """
 
         group = self.get_object()
@@ -134,13 +123,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 
 class GroupMembershipViewSet(viewsets.ModelViewSet):
     """
-    Membership API.
-
-    Used to update join/leave dates.
-
-    Example:
-    - Meera left on 2024-03-31
-    - Sam joined on 2024-04-15
+    API for membership join and leave dates.
     """
 
     serializer_class = GroupMembershipSerializer

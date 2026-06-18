@@ -22,7 +22,7 @@ ALLOWED_HOSTS = [
 
 
 INSTALLED_APPS = [
-    # Django apps
+    # Framework apps.
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -30,11 +30,11 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Third-party apps
+    # Installed packages.
     "rest_framework",
     "corsheaders",
 
-    # Local apps
+    # Project apps.
     "apps.accounts",
     "apps.groups",
     "apps.expenses",
@@ -92,8 +92,7 @@ if DATABASE_URL:
         )
     }
 else:
-    # Local fallback only.
-    # Final app should use Neon PostgreSQL.
+    # Keep local setup simple when DATABASE_URL is not provided.
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

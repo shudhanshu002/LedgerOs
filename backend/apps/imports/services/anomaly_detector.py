@@ -88,9 +88,7 @@ def parse_decimal_or_none(value):
 
 def amount_has_more_than_two_decimals(value) -> bool:
     """
-    Real CSV has amount like 899.995.
-
-    We flag this because money should normally have max 2 decimals.
+    Flag amounts that would need rounding beyond paise precision.
     """
 
     cleaned = (
@@ -121,13 +119,7 @@ def parse_iso_date_or_none(value):
 
 def is_ambiguous_numeric_date(date_raw: str) -> bool:
     """
-    Detects dates like 04/05/2026.
-
-    Could mean:
-    - 4 May 2026
-    - April 5 2026
-
-    Real CSV has a note about this ambiguity.
+    Detect numeric dates that could be read as either day/month or month/day.
     """
 
     if not date_raw:
@@ -146,11 +138,7 @@ def is_ambiguous_numeric_date(date_raw: str) -> bool:
 
 def looks_like_settlement(normalized: dict) -> bool:
     """
-    Detects rows that are probably settlements/payments, not expenses.
-
-    Real CSV examples:
-    - Rohan paid Aisha back
-    - Sam deposit share, paid Aisha his deposit
+    Detect rows that describe money paid back rather than shared spending.
     """
 
     searchable_text = " ".join(
@@ -190,9 +178,7 @@ def get_known_users_by_name(names: set[str]) -> dict[str, User]:
 
 def is_user_active_on(group: Group, user: User, expense_date: date) -> bool:
     """
-    This protects:
-    - Sam from expenses before he joined
-    - Meera from expenses after she left
+    Check whether the user belonged to the group on the expense date.
     """
 
     return GroupMembership.objects.filter(
@@ -319,10 +305,7 @@ def detect_row_anomalies(
     group: Group,
 ) -> list[ImportIssue]:
     """
-    Detects anomalies for a single CSV row.
-
-    This function should not crash on bad data.
-    Bad data becomes ImportIssue.
+    Validate one normalized CSV row and create issues instead of crashing.
     """
 
     before_ids = set(
@@ -557,7 +540,7 @@ def detect_row_anomalies(
 
 def detect_batch_anomalies(batch: ImportBatch):
     """
-    Detects batch-level anomalies like duplicates and conflicts.
+    Run duplicate and cross-row checks for the batch.
     """
 
     rows = list(batch.rows.all())
@@ -595,13 +578,7 @@ def detect_exact_duplicates(batch: ImportBatch, rows: list[ImportRow]):
 
 def canonical_description(description: str) -> str:
     """
-    Normalizes descriptions for duplicate-like detection.
-
-    Real CSV examples:
-    - Dinner at Marina Bites
-    - dinner - marina bites
-
-    Both become close enough to compare.
+    Normalize descriptions enough to compare duplicate-like rows.
     """
 
     text = str(description or "").lower()
@@ -692,13 +669,7 @@ def token_overlap_score(left: str, right: str) -> float:
 
 def detect_possible_fuzzy_duplicates(batch: ImportBatch, rows: list[ImportRow]):
     """
-    Detects similar rows with different descriptions.
-
-    Real CSV examples:
-    - Dinner at Thalassa
-    - Thalassa dinner
-
-    These should be surfaced, not silently merged.
+    Surface similar same-day rows without merging them automatically.
     """
 
     for index, left in enumerate(rows):
@@ -755,7 +726,7 @@ def detect_possible_fuzzy_duplicates(batch: ImportBatch, rows: list[ImportRow]):
 
 def update_row_status_from_issues(row: ImportRow):
     """
-    Updates ImportRow.status based on its issues.
+    Recalculate an import row's review status from its issues.
     """
 
     issues = row.issues.all()
@@ -777,7 +748,7 @@ def update_row_status_from_issues(row: ImportRow):
 
 def refresh_batch_summary(batch: ImportBatch):
     """
-    Stores summary counts on ImportBatch.
+    Store summary counts on the batch for quick UI reads.
     """
 
     rows = batch.rows.all()

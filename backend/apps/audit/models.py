@@ -7,14 +7,14 @@ class AuditLog(models.Model):
     """
     Stores important user actions in the system.
 
-    This is useful for:
+    Useful for:
     - import approvals
     - skipped duplicate rows
     - committed import batches
     - manually created expenses
     - recorded settlements
 
-    It gives us a traceable history for live review.
+    It keeps financial changes traceable during review and debugging.
     """
 
     class Action(models.TextChoices):

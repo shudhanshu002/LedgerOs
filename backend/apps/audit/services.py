@@ -18,9 +18,9 @@ def create_audit_log(
     metadata: dict[str, Any] | None = None,
 ) -> AuditLog | None:
     """
-    Creates one audit log entry.
+    Create a single audit log entry.
 
-    We keep this as a helper so every app logs actions consistently.
+    Centralize audit writes so app code logs actions consistently.
 
     Example:
     create_audit_log(

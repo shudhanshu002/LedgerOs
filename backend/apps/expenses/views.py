@@ -23,7 +23,7 @@ from apps.groups.models import Group, GroupMembership
 
 def user_belongs_to_group(user, group_id: int) -> bool:
     """
-    Checks whether the logged-in user has access to this group.
+    Check whether the logged-in user has access to this group.
     """
 
     return GroupMembership.objects.filter(
@@ -34,7 +34,7 @@ def user_belongs_to_group(user, group_id: int) -> bool:
 
 def get_group_or_404_for_user(user, group_id: int) -> Group:
     """
-    Returns group only if user belongs to it.
+    Fetch a group only when the current user belongs to it.
     """
 
     try:
@@ -48,9 +48,7 @@ def get_group_or_404_for_user(user, group_id: int) -> Group:
 
 def get_active_memberships_by_user_id(group: Group, expense_date):
     """
-    Returns active memberships for a specific date.
-
-    This is the core reason Sam does not owe March expenses.
+    Fetch active memberships for a specific date.
     """
 
     memberships = GroupMembership.objects.filter(
@@ -102,14 +100,10 @@ class ExpenseViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """
-        Manually creates an expense.
+        Manually create an expense.
 
-        Important:
-        Frontend sends business-level data.
-        Backend calculates:
-        - INR paise
-        - split amounts
-        - member validity by date
+        The client sends business-level data; the backend calculates paise,
+        split amounts, and membership validity.
         """
 
         serializer = ManualExpenseCreateSerializer(data=request.data)
@@ -277,12 +271,7 @@ class ExpenseViewSet(viewsets.ModelViewSet):
 
 class SettlementViewSet(viewsets.ModelViewSet):
     """
-    Settlement/payment API.
-
-    Used when one member pays back another member.
-
-    Example:
-    Meera paid Rohan ₹2300.
+    API for direct paybacks between members.
     """
 
     serializer_class = SettlementSerializer

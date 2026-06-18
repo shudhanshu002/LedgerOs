@@ -15,14 +15,9 @@ class TimeStampedModel(models.Model):
 
 class Expense(TimeStampedModel):
     """
-    Represents one actual shared expense.
+    One shared expense paid by a group member.
 
-    Example:
-    Aisha paid ₹4000 for electricity.
-
-    Important:
-    A settlement/payment is NOT stored here.
-    Settlements are stored separately in Settlement model.
+    Paybacks are stored as Settlement records, not expenses.
     """
 
     class Currency(models.TextChoices):
@@ -98,11 +93,7 @@ class Expense(TimeStampedModel):
 
 class ExpenseSplit(TimeStampedModel):
     """
-    Represents how much one user owes for one expense.
-
-    Example:
-    Electricity ₹4000 split equally between 4 members:
-    each ExpenseSplit = 100000 paise.
+    The amount one member owes for an expense.
     """
 
     expense = models.ForeignKey(
@@ -145,12 +136,9 @@ class ExpenseSplit(TimeStampedModel):
 
 class Settlement(TimeStampedModel):
     """
-    Represents money paid back between members.
+    A direct payback between two members.
 
-    Example:
-    Meera paid Rohan ₹2300.
-
-    This affects balances but is not an expense.
+    Settlements change balances without creating new shared spending.
     """
 
     group = models.ForeignKey(

@@ -120,7 +120,7 @@ class ImportRowAdmin(admin.ModelAdmin):
     """
     Admin view for each CSV row.
 
-    This is important for live review:
+    Worth keeping for review and debugging:
     interviewer can ask about one CSV row and we can trace what happened.
     """
 
@@ -209,7 +209,7 @@ class ImportDecisionAdmin(admin.ModelAdmin):
     """
     Admin view for user decisions on import issues.
 
-    This supports Meera's approval requirement.
+    This keeps approval history easy to inspect.
     """
 
     list_display = [

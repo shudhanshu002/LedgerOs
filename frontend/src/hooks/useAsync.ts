@@ -47,7 +47,7 @@ export function useAsync<T>(
   useEffect(() => {
     if (options.immediate) {
       execute().catch(() => {
-        // Error state is already handled inside execute.
+        // execute() has already stored the error for the UI.
       });
     }
   }, [execute, options.immediate]);

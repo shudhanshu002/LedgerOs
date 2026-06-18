@@ -32,11 +32,7 @@ REQUIRED_HEADERS = {
 
 def normalize_header(header: str) -> str:
     """
-    Normalizes CSV headers.
-
-    Examples:
-    "Paid By"       -> "paid_by"
-    "Split Details" -> "split_details"
+    Convert CSV headers to the snake_case keys used by the importer.
     """
 
     return (
@@ -50,18 +46,7 @@ def normalize_header(header: str) -> str:
 
 def normalize_raw_row_keys(raw_row: dict) -> dict:
     """
-    Converts raw CSV headers into normalized keys.
-
-    Example:
-    {
-      "Paid By": "Aisha"
-    }
-
-    becomes:
-
-    {
-      "paid_by": "Aisha"
-    }
+    Normalize header names while leaving cell values untouched.
     """
 
     normalized = {}
@@ -74,12 +59,7 @@ def normalize_raw_row_keys(raw_row: dict) -> dict:
 
 def validate_headers(fieldnames: list[str]):
     """
-    Validates the official assignment CSV format.
-
-    Real CSV headers:
-
-    date, description, paid_by, amount, currency,
-    split_type, split_with, split_details, notes
+    Make sure the upload has the columns the importer expects.
     """
 
     if not fieldnames:
@@ -101,13 +81,7 @@ def validate_headers(fieldnames: list[str]):
 
 def read_uploaded_csv(file_obj) -> tuple[list[str], list[dict]]:
     """
-    Reads uploaded CSV file safely.
-
-    Returns:
-    - headers
-    - rows as dictionaries
-
-    This function does not create database records.
+    Read and validate the uploaded CSV without touching the database.
     """
 
     try:
@@ -140,20 +114,10 @@ def create_import_batch_from_csv(
     file_obj,
 ) -> ImportBatch:
     """
-    Main CSV import entry point.
+    Parse an uploaded CSV into a reviewable import batch.
 
-    Flow:
-    1. Read uploaded CSV
-    2. Create ImportBatch
-    3. Create ImportRow for every CSV row
-    4. Normalize row
-    5. Detect row-level anomalies
-    6. Detect batch-level anomalies
-    7. Refresh statuses and summary
-
-    Important:
-    This does NOT create Expense rows yet.
-    Actual expense creation happens later in commit_import.py after review.
+    This records rows and issues only. Expenses and settlements are created
+    later by the commit step.
     """
 
     _, rows = read_uploaded_csv(file_obj)

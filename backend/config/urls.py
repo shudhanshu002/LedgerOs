@@ -4,14 +4,14 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
 urlpatterns = [
-    # Django admin
+    # Admin.
     path("admin/", admin.site.urls),
 
-    # Auth endpoints
+    # Token auth.
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 
-    # App endpoints
+    # App APIs.
     path("api/auth/", include("apps.accounts.urls")),
     path("api/groups/", include("apps.groups.urls")),
     path("api/expenses/", include("apps.expenses.urls")),

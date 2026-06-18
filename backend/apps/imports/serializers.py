@@ -28,7 +28,7 @@ class UserMiniSerializer(serializers.ModelSerializer):
 
 class ImportIssueSerializer(serializers.ModelSerializer):
     """
-    Represents one detected CSV problem.
+    One detected CSV problem.
 
     Example:
     - INVALID_DATE
@@ -91,7 +91,7 @@ class ImportDecisionSerializer(serializers.ModelSerializer):
     """
     Stores user approval/rejection decisions.
 
-    This is important for Meera's requirement:
+    Keeps the reviewer trail visible:
     "I want to approve anything the app deletes or changes."
     """
 
@@ -126,7 +126,7 @@ class ImportDecisionSerializer(serializers.ModelSerializer):
 
 class ImportRowSerializer(serializers.ModelSerializer):
     """
-    Represents one CSV row.
+    One CSV row.
 
     Shows both raw and normalized data for traceability.
     """

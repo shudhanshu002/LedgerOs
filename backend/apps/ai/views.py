@@ -15,7 +15,7 @@ class ImportAnomalyExplainView(APIView):
     Endpoint:
     GET /api/ai/imports/{batch_id}/explain/
 
-    Important:
+    Note:
     This endpoint does not calculate money.
     It does not approve or reject rows.
     It only explains already-detected ImportIssue records in plain English.

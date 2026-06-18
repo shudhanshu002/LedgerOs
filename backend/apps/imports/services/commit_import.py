@@ -34,7 +34,7 @@ REVIEW_REQUIRED_CODES = {
 
 def get_user_by_name(name: str) -> User:
     """
-    Finds a user by username, case-insensitive.
+    Find a user by username, case-insensitively.
     """
 
     user = User.objects.filter(username__iexact=name).first()
@@ -47,10 +47,7 @@ def get_user_by_name(name: str) -> User:
 
 def user_is_active_on(group, user: User, expense_date) -> bool:
     """
-    Final safety check before committing rows.
-
-    Even if anomaly detection missed something, commit step should not
-    create invalid financial data.
+    Check active membership on the date being committed.
     """
 
     return (
@@ -72,7 +69,7 @@ def user_is_active_on(group, user: User, expense_date) -> bool:
 
 def row_has_unresolved_blocking_issues(row: ImportRow) -> bool:
     """
-    A row cannot be committed if it has unresolved ERROR issues.
+    Rows with open ERROR issues cannot be committed.
     """
 
     return (
@@ -89,9 +86,7 @@ def row_has_unresolved_blocking_issues(row: ImportRow) -> bool:
 
 def row_has_unapproved_review_issues(row: ImportRow) -> bool:
     """
-    Warning/info issues that imply user review must be approved before commit.
-
-    This prevents silent decisions.
+    Review-required warnings and info issues need approval before commit.
     """
 
     return row.issues.filter(
@@ -112,7 +107,7 @@ def issue_approved(row: ImportRow, code: str) -> bool:
 
 def should_import_as_settlement(row: ImportRow) -> bool:
     """
-    Settlement-looking rows should become Settlement only when approved.
+    Return true when the reviewer approved settlement import.
     """
 
     return issue_approved(row, "SETTLEMENT_AS_EXPENSE")
@@ -120,7 +115,7 @@ def should_import_as_settlement(row: ImportRow) -> bool:
 
 def row_should_be_skipped(row: ImportRow) -> bool:
     """
-    Rows marked skipped through user decision should not be committed.
+    Skip rows that were deliberately removed during review.
     """
 
     return row.status == ImportRow.Status.SKIPPED
@@ -171,9 +166,7 @@ def validate_people_active(
 
 def commit_expense_row(row: ImportRow) -> Expense:
     """
-    Converts one reviewed import row into Expense + ExpenseSplit rows.
-
-    This is where CSV data starts affecting balances.
+    Convert one approved import row into an Expense and its splits.
     """
 
     normalized = row.normalized_data
@@ -257,17 +250,7 @@ def commit_expense_row(row: ImportRow) -> Expense:
 
 def infer_settlement_parties(row: ImportRow) -> tuple[User, User]:
     """
-    Infers settlement paid_by and paid_to from normalized row.
-
-    Example:
-    paid_by = Rohan
-    participants = [Rohan, Aisha]
-
-    Then:
-    paid_by = Rohan
-    paid_to = Aisha
-
-    If ambiguous, we block commit instead of guessing silently.
+    Infer settlement payer and receiver from the normalized row.
     """
 
     normalized = row.normalized_data
@@ -295,7 +278,7 @@ def infer_settlement_parties(row: ImportRow) -> tuple[User, User]:
 
 def commit_settlement_row(row: ImportRow) -> Settlement:
     """
-    Converts one approved settlement-like import row into Settlement.
+    Convert one approved settlement-like import row into a Settlement.
     """
 
     normalized = row.normalized_data
@@ -335,11 +318,7 @@ def commit_settlement_row(row: ImportRow) -> Settlement:
 
 def can_commit_row(row: ImportRow) -> bool:
     """
-    A row can be committed only if:
-    - it is not skipped
-    - it is not already committed
-    - it has no unresolved ERROR issues
-    - it has no open review-required issues
+    Check whether a reviewed row is eligible for commit.
     """
 
     if row.status in [
@@ -361,11 +340,7 @@ def can_commit_row(row: ImportRow) -> bool:
 @transaction.atomic
 def commit_import_batch(batch: ImportBatch, committed_by: User) -> dict:
     """
-    Commits reviewed import rows into real financial records.
-
-    Important:
-    Uploading CSV only creates report data.
-    This function is the explicit approval-to-ledger step.
+    Commit eligible reviewed rows into expenses or settlements.
     """
 
     if batch.status == ImportBatch.Status.COMMITTED:

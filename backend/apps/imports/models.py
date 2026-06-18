@@ -15,14 +15,10 @@ class TimeStampedModel(models.Model):
 
 class ImportBatch(TimeStampedModel):
     """
-    Represents one CSV upload attempt.
+    One uploaded CSV file and its review state.
 
-    Example:
-    User uploads expenses_export.csv.
-    We create one ImportBatch for that upload.
-
-    The batch does not immediately create expenses.
-    First, we parse rows and create an import report.
+    Uploading a batch records rows and issues. Ledger entries are created only
+    during commit.
     """
 
     class Status(models.TextChoices):
@@ -72,14 +68,10 @@ class ImportBatch(TimeStampedModel):
 
 class ImportRow(TimeStampedModel):
     """
-    Represents one row from the uploaded CSV.
+    One CSV row, kept in both raw and normalized form.
 
-    We keep both:
-    - raw_data: exact row from CSV
-    - normalized_data: cleaned/interpreted version
-
-    This is important for live review because we can trace exactly
-    what happened to each CSV row.
+    raw_data preserves the upload. normalized_data stores the cleaned values
+    used by validation and commit.
     """
 
     class Status(models.TextChoices):
@@ -140,14 +132,7 @@ class ImportRow(TimeStampedModel):
 
 class ImportIssue(TimeStampedModel):
     """
-    Represents one problem detected during import.
-
-    Every CSV problem should become an ImportIssue.
-
-    Assignment requirement:
-    - detect the problem
-    - surface it to the user
-    - handle it according to a documented policy
+    One validation or review item raised during CSV import.
     """
 
     class Severity(models.TextChoices):
@@ -232,14 +217,9 @@ class ImportIssue(TimeStampedModel):
 
 class ImportDecision(TimeStampedModel):
     """
-    Stores user decisions made during import review.
+    Reviewer action taken on an import issue.
 
-    Example:
-    - User approved skipping duplicate row.
-    - User approved converting settlement row into Settlement.
-    - User rejected a suggested fix.
-
-    This gives Meera the approval trail she asked for.
+    The before/after snapshots make review decisions auditable.
     """
 
     issue = models.ForeignKey(

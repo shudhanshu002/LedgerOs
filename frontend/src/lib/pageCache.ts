@@ -48,6 +48,6 @@ export function setPageCache<T>(key: string, value: T) {
       } satisfies StoredPageCache<T>),
     );
   } catch {
-    // In-memory cache still works if localStorage is unavailable or full.
+    // Keep the page usable even when localStorage is blocked or full.
   }
 }

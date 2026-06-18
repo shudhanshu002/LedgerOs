@@ -40,7 +40,7 @@ class GroupMembershipAdmin(admin.ModelAdmin):
     """
     Admin view for membership timeline.
 
-    This is useful for checking:
+    Useful for checking:
     - Sam joined mid-April
     - Meera left end of March
     """

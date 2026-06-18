@@ -50,9 +50,9 @@ class Command(BaseCommand):
 
     def create_demo_users(self) -> dict[str, User]:
         """
-        Creates demo users used by the real CSV.
+        Creates demo users used by the CSV.
 
-        Important:
+        Note:
         Usernames are intentionally simple because importer maps CSV names
         to username case-insensitively.
         """
@@ -90,7 +90,7 @@ class Command(BaseCommand):
 
     def create_demo_group(self, created_by: User) -> Group:
         """
-        Creates or updates one group for the assignment demo.
+        Creates or updates one group for the demo data.
 
         Older local/deployed databases may already have the original seed name
         "Goa Trip 2026". Reuse and rename that group instead of creating a
@@ -168,7 +168,7 @@ class Command(BaseCommand):
         """
         Creates the demo membership timeline.
 
-        Dates are aligned with the real CSV import anomaly requirements.
+        Dates are aligned with the CSV import anomaly requirements.
         """
 
         self.upsert_membership(

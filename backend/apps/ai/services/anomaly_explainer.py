@@ -146,7 +146,7 @@ def build_issue_samples(issues, limit: int = 3) -> list[dict]:
     """
     Returns a few row examples for the explanation.
 
-    We intentionally do not return every row here because the UI/report
+    Deliberately do not return every row here because the UI/report
     should stay readable.
     """
 
@@ -275,11 +275,7 @@ def build_commit_guidance(open_severity_counts: dict, row_counts: dict) -> list[
 
 def build_human_summary(batch: ImportBatch) -> dict:
     """
-    Builds an AI-style import explanation.
-
-    Important:
-    This is deterministic and does not call an external LLM.
-    That keeps the project reliable for demo and testing.
+    Build a deterministic import explanation for the review UI.
     """
 
     issues = list(

@@ -85,7 +85,7 @@ def create_import_audit_log(
     """
     Small local audit helper.
 
-    We keep import actions traceable:
+    Keep import actions traceable:
     - CSV upload
     - issue review
     - batch commit
@@ -128,7 +128,7 @@ def recalculate_row_status_after_review(row: ImportRow | None):
     """
     Updates row status after user decision.
 
-    Important:
+    Note:
     The first anomaly detector marks rows as BLOCKED/NEEDS_REVIEW.
     After a user approves or resolves issues, row status must be recalculated
     so commit_import.py can process it.
@@ -335,7 +335,7 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Uploads CSV and creates an import report.
 
-        Important:
+        Note:
         This endpoint does NOT create expenses.
         It only creates:
         - ImportBatch
@@ -430,13 +430,7 @@ class ImportBatchViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["get"], url_path="report")
     def report(self, request, pk=None):
         """
-        Returns the assignment import report for one batch.
-
-        This is the explicit deliverable:
-        - every anomaly detected
-        - row number and current row status
-        - policy/suggested action
-        - reviewer action taken, if any
+        Return the review report for one import batch.
         """
 
         batch = self.get_object()

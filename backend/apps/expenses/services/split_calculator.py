@@ -15,13 +15,7 @@ class SplitCalculationError(ValueError):
 
 def normalize_split_type(split_type: str) -> str:
     """
-    Normalizes split type from API/CSV.
-
-    Real CSV values:
-    - equal
-    - unequal
-    - percentage
-    - share
+    Normalize split labels from the API or CSV.
     """
 
     normalized = (split_type or "").strip().upper()
@@ -45,12 +39,7 @@ def normalize_split_type(split_type: str) -> str:
 
 def clean_split_number(value: str) -> str:
     """
-    Cleans split number values.
-
-    Examples:
-    "30%"    -> "30"
-    "1,200"  -> "1200"
-    " 700 "  -> "700"
+    Strip currency symbols, commas, and percent signs from split values.
     """
 
     return (
@@ -65,20 +54,7 @@ def clean_split_number(value: str) -> str:
 
 def parse_named_values(raw_value: str) -> dict[str, Decimal]:
     """
-    Parses real CSV split_details.
-
-    Supported real examples:
-
-    Rohan 700; Priya 400; Meera 400
-
-    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
-
-    Aisha 1; Rohan 2; Priya 1; Dev 2
-
-    Also supports safer formats:
-
-    Aisha:700,Rohan:400
-    Aisha=700;Rohan=400
+    Parse named split values such as "Aisha 700" or "Rohan:30%".
     """
 
     if not raw_value:
@@ -98,7 +74,7 @@ def parse_named_values(raw_value: str) -> dict[str, Decimal]:
         if not item:
             continue
 
-        # Supports:
+        # Accepts:
         # Aisha:700
         # Aisha=700
         if ":" in item:
@@ -108,7 +84,7 @@ def parse_named_values(raw_value: str) -> dict[str, Decimal]:
             name, value = item.split("=", 1)
 
         else:
-            # Supports:
+            # Accepts:
             # Aisha 700
             # Priya 30%
             # Dev 2
@@ -145,20 +121,7 @@ def calculate_equal_split(
     participants: list[str],
 ) -> dict[str, int]:
     """
-    Equal split.
-
-    Example:
-    ₹100 split among 3 people:
-
-    {
-      "Aisha": 3334,
-      "Rohan": 3333,
-      "Priya": 3333
-    }
-
-    Remainder policy:
-    Extra paise go to earlier participants.
-    This is deterministic and documented.
+    Split an amount equally, assigning leftover paise from the front.
     """
 
     if not participants:
@@ -177,15 +140,7 @@ def calculate_exact_split(
     split_values_raw: str,
 ) -> dict[str, int]:
     """
-    Unequal/exact split.
-
-    Real CSV example:
-    Rohan 700; Priya 400; Meera 400
-
-    Meaning:
-    Rohan owes ₹700
-    Priya owes ₹400
-    Meera owes ₹400
+    Use exact per-person amounts from split_details.
     """
 
     named_values = parse_named_values(split_values_raw)
@@ -214,13 +169,7 @@ def calculate_percentage_split(
     split_values_raw: str,
 ) -> dict[str, int]:
     """
-    Percentage split.
-
-    Real CSV example:
-    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
-
-    Total must be exactly 100.
-    If it is 110, we block it as anomaly.
+    Allocate by percentages. The percentages must add up to 100.
     """
 
     named_values = parse_named_values(split_values_raw)
@@ -272,17 +221,7 @@ def calculate_share_split(
     split_values_raw: str,
 ) -> dict[str, int]:
     """
-    Share split.
-
-    Real CSV example:
-    Aisha 2; Rohan 1; Priya 1
-
-    Total shares = 4
-
-    If expense is ₹48000:
-    Aisha owes ₹24000
-    Rohan owes ₹12000
-    Priya owes ₹12000
+    Allocate by weighted shares.
     """
 
     named_values = parse_named_values(split_values_raw)
@@ -340,15 +279,7 @@ def calculate_split(
     split_values_raw: str = "",
 ) -> dict[str, int]:
     """
-    Main split calculation entry point.
-
-    Returns:
-    {
-      "Aisha": 10000,
-      "Rohan": 10000
-    }
-
-    All returned values are in paise.
+    Dispatch to the split calculator for the requested split type.
     """
 
     normalized_split_type = normalize_split_type(split_type)

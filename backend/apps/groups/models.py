@@ -13,10 +13,7 @@ class TimeStampedModel(models.Model):
 
 class Group(TimeStampedModel):
     """
-    A shared expense group.
-
-    Example:
-    Flatmates Shared Expenses
+    Shared workspace for expenses and settlements.
     """
 
     name = models.CharField(max_length=120)
@@ -34,13 +31,10 @@ class Group(TimeStampedModel):
 
 class GroupMembership(TimeStampedModel):
     """
-    Historical membership record.
+    A member's role and active date range inside a group.
 
-    This is one of the most important models in the assignment.
-
-    It allows us to answer:
-    - Was Sam active in March? No.
-    - Was Meera active after March? No.
+    The date range decides who can pay for or be included in an expense on a
+    specific day.
     """
 
     class Role(models.TextChoices):
@@ -81,8 +75,7 @@ class GroupMembership(TimeStampedModel):
 
     def is_active_on(self, expense_date):
         """
-        Returns True if the member should be considered part of the group
-        on the given expense date.
+        Return whether this membership covers the given date.
         """
 
         if expense_date < self.joined_at:

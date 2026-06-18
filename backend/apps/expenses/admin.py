@@ -25,7 +25,7 @@ class ExpenseAdmin(admin.ModelAdmin):
     """
     Admin view for expenses.
 
-    This is useful during testing and live review because each expense
+    Useful during testing and review and debugging because each expense
     shows its payer, amount, currency, split type, and split rows.
     """
 
@@ -72,7 +72,7 @@ class ExpenseSplitAdmin(admin.ModelAdmin):
     """
     Admin view for expense split rows.
 
-    Useful for Rohan's requirement:
+    Useful when checking expense and settlement flows:
     "No magic numbers. Show exactly which expenses make up my balance."
     """
 

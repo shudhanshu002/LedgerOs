@@ -26,11 +26,7 @@ SUPPORTED_DATE_FORMATS = [
 
 def clean_text(value) -> str:
     """
-    Converts any value into clean text.
-
-    Examples:
-    "  Priya   Singh " -> "Priya Singh"
-    None              -> ""
+    Trim a CSV value and collapse repeated whitespace.
     """
 
     if value is None:
@@ -46,16 +42,9 @@ def clean_text(value) -> str:
 
 def normalize_person_name(value) -> str:
     """
-    Normalizes person names from CSV.
+    Map known name variants to canonical usernames.
 
-    Examples:
-    " priya " -> "Priya"
-    "Priya S" -> "Priya"
-    "rohan"   -> "Rohan"
-
-    Unknown names are preserved so anomaly detector can flag them.
-    Example:
-    "Dev's friend Kabir" remains "Dev's friend Kabir"
+    Unknown names are preserved so the anomaly detector can flag them.
     """
 
     cleaned = clean_text(value)
@@ -70,19 +59,7 @@ def normalize_person_name(value) -> str:
 
 def normalize_people_list(value) -> list[str]:
     """
-    Normalizes participant list.
-
-    Real CSV uses split_with:
-
-    Aisha;Rohan;Priya;Meera
-
-    Supported separators:
-    - semicolon
-    - comma
-    - pipe
-
-    Returns:
-    ["Aisha", "Rohan", "Priya", "Meera"]
+    Split and normalize a participant list from the CSV.
     """
 
     if not value:
@@ -107,16 +84,9 @@ def normalize_people_list(value) -> list[str]:
 
 def parse_date_or_none(value):
     """
-    Tries to parse a date.
+    Parse supported date formats.
 
-    Returns:
-    - date object if valid
-    - None if invalid or ambiguous
-
-    Important:
-    The real CSV has a row like "Mar 14".
-    We intentionally do not guess the year.
-    That row should become an INVALID_DATE anomaly.
+    Dates without a year are left unresolved so review can catch them.
     """
 
     text = clean_text(value)
@@ -135,13 +105,9 @@ def parse_date_or_none(value):
 
 def normalize_currency(value) -> str:
     """
-    Normalizes currency values.
+    Normalize supported currency labels.
 
-    Real CSV has some blank currency values.
-
-    Policy:
-    Blank currency becomes empty string, not INR.
-    Then anomaly detector can decide whether to block or default.
+    Blank values stay blank so validation can block them explicitly.
     """
 
     cleaned = clean_text(value).upper()
@@ -157,20 +123,7 @@ def normalize_currency(value) -> str:
 
 def normalize_split_type(value) -> str:
     """
-    Normalizes split type from CSV.
-
-    Real CSV has:
-    - equal
-    - unequal
-    - percentage
-    - share
-    - blank for settlement row
-
-    Supported output:
-    EQUAL
-    EXACT
-    PERCENTAGE
-    SHARE
+    Normalize CSV split labels to the backend enum values.
     """
 
     cleaned = clean_text(value).upper()
@@ -200,13 +153,7 @@ def normalize_split_type(value) -> str:
 
 def get_first_available(raw: dict, possible_keys: list[str]):
     """
-    CSV headers may vary slightly.
-
-    Real CSV uses:
-    - split_with instead of participants
-    - split_details instead of split_values
-
-    This lets us support both without editing CSV manually.
+    Return the first matching value from a list of accepted header names.
     """
 
     for key in possible_keys:
@@ -218,14 +165,7 @@ def get_first_available(raw: dict, possible_keys: list[str]):
 
 def normalize_raw_split_details(value) -> str:
     """
-    Normalizes split details but does not fully parse them here.
-
-    Real CSV examples:
-    Rohan 700; Priya 400; Meera 400
-    Aisha 30%; Rohan 30%; Priya 30%; Meera 20%
-    Aisha 1; Rohan 2; Priya 1; Dev 2
-
-    Full parsing happens in split_calculator.py.
+    Clean split details; detailed parsing happens in split_calculator.py.
     """
 
     return clean_text(value)
@@ -233,13 +173,9 @@ def normalize_raw_split_details(value) -> str:
 
 def normalize_row(raw: dict) -> dict:
     """
-    Converts one raw CSV row into normalized format.
+    Convert one raw CSV row into the normalized import shape.
 
-    Important:
-    This does not decide whether row is valid.
-    It only cleans and standardizes values.
-
-    Validation/anomaly detection happens in anomaly_detector.py.
+    This only cleans values. Validation happens in anomaly_detector.py.
     """
 
     date_raw = clean_text(
@@ -326,15 +262,7 @@ def normalize_row(raw: dict) -> dict:
 
 def normalized_row_hash(normalized: dict) -> str:
     """
-    Creates stable hash for exact duplicate detection.
-
-    We hash normalized data, not raw data.
-
-    Reason:
-    These should be treated as duplicate-like:
-
-    " priya " and "Priya"
-    "inr" and "INR"
+    Build a stable hash from normalized data for duplicate detection.
     """
 
     payload = json.dumps(
